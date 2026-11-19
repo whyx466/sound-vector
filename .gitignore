@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# 本机密钥与代理缓存（绝不上传）
+collector/.google_key
+collector/.wb_key
+collector/.proxy.cache
+
+# 每次运行产生的临时产出（榜单基线除外）
+collector/out/batch_*.json
+collector/out/report_*.md
+collector/out/charts/snapshot_*.json
+collector/out/charts/report_*.md
+collector/out/charts/events_*.json
