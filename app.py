@@ -3,11 +3,15 @@
 """
 声向 SOUND VECTOR —— 云托管采集服务 HTTP 入口
 ==============================================
-Flask 应用，配合容器内 cron（见 task.txt / start.sh）每小时自动采集。
+Flask 应用，内置定时调度线程（每 5 分钟一轮），不依赖容器 cron。
+
+为何内置调度而不是 cron（2026-11-20 实测教训）：
+  容器 cron 在云托管里部署成功但任务静默不执行（PATH/daemon 驻留/环境继承多重坑），
+  连续 3 个班次零落盘。Web 进程经探活证明稳定存活，改由它自己的线程驱动采集最可靠。
 
 路由：
   GET  /        健康检查（云托管探活用）
-  GET  /status  上一轮采集结果（out/last_cycle.json）
+  GET  /status  上一轮采集结果（out/last_cycle.json）+ 调度器/密钥诊断
   POST /collect 手动触发一轮（异步后台跑，立即返回；带令牌鉴权）
 
 鉴权：环境变量 COLLECT_TOKEN。
@@ -19,6 +23,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 
 from flask import Flask, jsonify, request
 
@@ -26,9 +31,15 @@ app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "collector", "out")
 TOKEN = os.environ.get("COLLECT_TOKEN", "").strip()
+INTERVAL = int(os.environ.get("CYCLE_INTERVAL", "300"))  # 默认 5 分钟
 
 _lock = threading.Lock()
-_state = {"busy": False, "last_started": None, "last_finished": None}
+_state = {"busy": False, "last_started": None, "last_finished": None,
+          "trigger": None, "cycles_started": 0}
+
+
+def _now():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _authorized():
@@ -52,13 +63,34 @@ def _run_cycle():
     finally:
         with _lock:
             _state["busy"] = False
-            _state["last_finished"] = __import__("time").strftime("%Y-%m-%d %H:%M:%S")
+            _state["last_finished"] = _now()
+
+
+def _trigger_cycle(source="manual"):
+    """统一入口：手动 /collect 与内置调度器都走这里，带互斥防重入。"""
+    with _lock:
+        if _state["busy"]:
+            return False
+        _state["busy"] = True
+        _state["last_started"] = _now()
+        _state["trigger"] = source
+        _state["cycles_started"] += 1
+    threading.Thread(target=_run_cycle, daemon=True).start()
+    return True
+
+
+def _scheduler_loop():
+    """进程内定时：启动 15 秒后跑首轮，之后每 INTERVAL 秒一轮。"""
+    time.sleep(15)
+    while True:
+        _trigger_cycle("scheduler")
+        time.sleep(INTERVAL)
 
 
 @app.get("/")
 def health():
     return jsonify({"ok": True, "service": "soundvector-collector",
-                    "busy": _state["busy"]})
+                    "busy": _state["busy"], "interval_sec": INTERVAL})
 
 
 @app.get("/status")
@@ -69,23 +101,33 @@ def status():
             data = json.load(f)
     except Exception:
         data = None
-    return jsonify({"busy": _state["busy"],
-                    "last_started": _state["last_started"],
-                    "last_finished": _state["last_finished"],
-                    "last_cycle": data})
+    return jsonify({
+        "busy": _state["busy"],
+        "last_started": _state["last_started"],
+        "last_finished": _state["last_finished"],
+        "trigger": _state["trigger"],
+        "cycles_started": _state["cycles_started"],
+        "interval_sec": INTERVAL,
+        "env": {
+            "WB_KEY": bool(os.environ.get("WB_KEY", "").strip()),
+            "GOOGLE_API_KEY": bool(os.environ.get("GOOGLE_API_KEY", "").strip()),
+            "COLLECT_TOKEN": bool(TOKEN),
+        },
+        "last_cycle": data,
+    })
 
 
 @app.route("/collect", methods=["POST", "GET"])
 def collect():
     if not _authorized():
         return jsonify({"ok": False, "error": "未授权（缺 COLLECT_TOKEN）"}), 401
-    with _lock:
-        if _state["busy"]:
-            return jsonify({"ok": False, "error": "上一轮还在跑，稍后再试"}), 409
-        _state["busy"] = True
-        _state["last_started"] = __import__("time").strftime("%Y-%m-%d %H:%M:%S")
-    threading.Thread(target=_run_cycle, daemon=True).start()
+    if not _trigger_cycle("manual"):
+        return jsonify({"ok": False, "error": "上一轮还在跑，稍后再试"}), 409
     return jsonify({"ok": True, "msg": "采集已在后台启动，GET /status 查进度"})
+
+
+# 启动进程内调度线程（gunicorn -w 1 单 worker，只会有一个调度器）
+threading.Thread(target=_scheduler_loop, daemon=True, name="cycle-scheduler").start()
 
 
 if __name__ == "__main__":
