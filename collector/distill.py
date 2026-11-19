@@ -87,8 +87,12 @@ def _program(title, body):
 
 def _venue(title, body, source=""):
     def clean(v):
-        # 正则会贪婪吞掉前面的介词，如「即将在海珠大戏院」→「海珠大戏院」
-        return re.sub(r"^(?:即将|将于|将在|在|于|到|前往|登陆|亮相|走进)+", "", v).strip()
+        # 正则会贪婪吞掉前面的介词与日期残片：
+        #   「即将在海珠大戏院」→「海珠大戏院」
+        #   「11月21日在海珠大戏院」→「日在海珠大戏院」→「海珠大戏院」
+        v = re.sub(r"^(?:即将|将于|将在|在|于|到|前往|登陆|亮相|走进)+", "", v)
+        v = re.sub(r"^[\d年月日号上午下午晚间:：\s]+", "", v)
+        return re.sub(r"^(?:在|于|的|位于)+", "", v).strip()
 
     for text in (body[:800], title, source):
         m = VENUE_PAT.search(text or "")
