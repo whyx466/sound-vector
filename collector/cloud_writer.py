@@ -37,6 +37,8 @@ import time
 import urllib.error
 import urllib.request
 
+import distill
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "out")
 CHART_DIR = os.path.join(OUT_DIR, "charts")
@@ -350,7 +352,8 @@ def filter_rows(rows, existing, limit=0):
     urls, titles = existing
     kept, stats = [], {"empty": 0, "bad_url": 0, "dup_url": 0, "dup_title": 0,
                        "non_music": 0, "weak_music": 0, "bad_cat": 0,
-                       "rumor": 0, "suspect": 0, "listing_url": 0, "thin_title": 0}
+                       "rumor": 0, "suspect": 0, "listing_url": 0, "thin_title": 0,
+                       "ops_reject": 0, "ops_rewrite": 0}
     for r in rows:
         if not r["title"] or len(r["title"]) < 4:
             stats["empty"] += 1
@@ -368,6 +371,22 @@ def filter_rows(rows, existing, limit=0):
         if not r["source_url"].startswith("http"):
             stats["bad_url"] += 1
             continue
+        # 运营稿提炼（2026-11-19 用户投诉：观演攻略/票务提示不该原文入库）：
+        # 有演出事实的压成一句话简讯，纯通知直接拒录。必须在去重前做，
+        # 否则同题材稿会以原长标题占住标题位，压成的一句话反而被判重复。
+        d = distill.analyze(r["title"], r.get("body") or "", r.get("source") or "")
+        if d["action"] == "reject":
+            stats["ops_reject"] += 1
+            log("  [拒录] %s | %s" % (d["reason"], r["title"][:50]))
+            continue
+        if d["action"] == "rewrite":
+            stats["ops_rewrite"] += 1
+            r["title"] = d["title"]
+            r["summary"] = d["summary"]
+            r["body"] = ""
+            r["is_brief"] = True
+            r["read_minutes"] = 1
+            log("  [提炼] %s" % d["title"])
         u = norm_url(r["source_url"])
         if u in urls:
             stats["dup_url"] += 1
@@ -488,7 +507,7 @@ def main():
     log("过滤：空标题 %(empty)d / 标题无信息量 %(thin_title)d / 坏链接 %(bad_url)d / 重复链接 %(dup_url)d / "
         "重复标题 %(dup_title)d / 非音乐 %(non_music)d / 音乐相关性弱 %(weak_music)d / "
         "纠正分类 %(bad_cat)d / 传言剔除 %(rumor)d / 弱来源标存疑 %(suspect)d / "
-        "链接不达单篇 %(listing_url)d" % stats)
+        "链接不达单篇 %(listing_url)d / 运营稿提炼 %(ops_rewrite)d / 运营稿拒录 %(ops_reject)d" % stats)
     log("待写入 %d 条" % len(kept))
 
     if args.region:
