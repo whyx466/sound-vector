@@ -378,7 +378,10 @@ GEO_RULES = [
      # 英文公司/平台名：标题只写 "Tencent Music reports..." 时无中文地理词，
      # 会被来源媒体的语区兜底挂错（实测挂在 Music In Africa 名下变成「非洲」）。
      r"tencent|netease|bytedance|字节跳动|qq\s*music|kugou|kuwo|"
-     r"中国音乐著作权协会|中国音像", "中国大陆"),
+     r"中国音乐著作权协会|中国音像|"
+    # 省市名（2026-11-19 补）：岳阳古琴稿此前无「中国」字样被兜到「全球」。
+    r"湖南|岳阳|长沙|成都|重庆|杭州|南京|武汉|西安|天津|苏州|郑州|青岛|厦门|"
+    r"昆明|贵阳|合肥|济南|福州|南昌|南宁|石家庄|太原|沈阳|哈尔滨|兰州", "中国大陆"),
     # 东南亚：先判具体国家，再兜到「东南亚」。顺序不能倒，否则「新加坡演唱会」
     # 会被泛东南亚规则吃掉，地区筛选就分不出国别了。
     (r"新加坡|singapore", "新加坡"),
@@ -771,7 +774,11 @@ MUSIC_STRONG = re.compile(
     r"rock in rio|lollapalooza|coachella|glastonbury|primavera sound|"
     r"fuji rock|summerfest|sziget|rock am ring|rock im park|"
     r"download festival|wacken|hellfest|roskilde|exit festival|"
-    r"woodstock|reading festival|leeds festival|splendour",
+    r"woodstock|reading festival|leeds festival|splendour|"
+    # --- 中文民族乐器 / 非遗 / 戏曲（2026-11-19 补：国琴网古琴稿此前被误杀）---
+    r"古琴|古筝|二胡|琵琶|柳琴|扬琴|中阮|大阮|箜篌|编钟|唢呐|马头琴|冬不拉|热瓦普|"
+    r"斫琴|琴人|琴家|琴社|古琴制作|民乐|民歌|山歌|花儿|呼麦|长调|侗族大歌|木卡姆|"
+    r"非遗|昆曲|京剧|越剧|粤剧|评弹|南音|戏曲|曲艺|梨园|唱腔",
     re.I)
 
 MUSIC_WEAK = re.compile(

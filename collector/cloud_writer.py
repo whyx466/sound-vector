@@ -225,13 +225,30 @@ def norm_title(t):
     return re.sub(r"[\s\W_]+", "", (t or "")).lower()
 
 
+def norm_url(u):
+    """归一化 source_url 用于去重。
+
+    普通链接剥掉查询串与尾斜杠即可；但公众号文章的唯一标识全在查询串里
+    （__biz/mid/idx/sn），剥掉后所有 mp.weixin.qq.com/s?... 会塌成同一个键，
+    互相误判重复。因此对公众号链接保留这四个参数、去掉 chksm/#rd 等噪声，
+    并统一 http→https（同一篇文章两种 scheme 也应视为同一篇）。
+    """
+    u = (u or "").split("#")[0].strip()
+    m = re.match(r"^(https?://mp\.weixin\.qq\.com/s)\?(.+)$", u, re.I)
+    if m:
+        keep = [kv for kv in m.group(2).split("&")
+                if kv.split("=", 1)[0].lower() in ("__biz", "mid", "idx", "sn")]
+        return "https://mp.weixin.qq.com/s" + ("?" + "&".join(keep) if keep else "")
+    return re.sub(r"^http://", "https://", u.split("?")[0], flags=re.I).rstrip("/").lower()
+
+
 def fetch_existing():
     """拉云端现有 source_url 与 title（最多 8000 条，足够覆盖去重窗口）。"""
     status, data = _req("GET", "/articles?select=source_url,title&order=id.desc&limit=8000")
     if status != 200 or not isinstance(data, list):
         log("警告：读取现有数据失败（HTTP %s），去重将不可靠，已中止" % status)
         return None
-    urls = {(r.get("source_url") or "").split("?")[0].rstrip("/").lower()
+    urls = {norm_url(r.get("source_url"))
             for r in data if r.get("source_url")}
     titles = {norm_title(r.get("title")) for r in data if r.get("title")}
     log("云端现有 %d 条，source_url %d 个" % (len(data), len(urls)))
@@ -274,6 +291,7 @@ def build_rows(batch_path, events_path):
     if batch_path:
         j = load_json(batch_path) or {}
         for a in (j.get("articles") or []):
+            body = (a.get("body") or "").strip()
             rows.append({
                 "category": a.get("category"),
                 "title": (a.get("title") or "").strip(),
@@ -281,15 +299,16 @@ def build_rows(batch_path, events_path):
                 # 采集阶段已翻好的中文（见 translate_zh.py）；没有就留空，下面统一补。
                 "title_cn": (a.get("title_cn") or "").strip()[:200],
                 "summary_cn": (a.get("summary_cn") or "").strip()[:400],
-                "body": "",
+                # 公众号等渠道有全文正文的保留；没有就空串（简讯）。
+                "body": body[:4000],
                 "source": (a.get("source") or "").strip()[:120],
                 "source_url": (a.get("source_url") or "").strip(),
                 "tag": "",
                 "publish_date": clamp_date(a.get("publish_date")),
-                "read_minutes": 1,
+                "read_minutes": int(a.get("read_minutes") or (min(9, max(1, len(body) // 350)) if body else 1)),
                 "featured": False,
                 "region": a.get("region") or "全球",
-                "is_brief": True,
+                "is_brief": bool(a.get("is_brief")) if a.get("is_brief") is not None else not body,
                 # gap = 用户问了但站内没有，采集器定向补抓回来的稿件
                 "_origin": a.get("_origin") or "batch",
             })
@@ -349,7 +368,7 @@ def filter_rows(rows, existing, limit=0):
         if not r["source_url"].startswith("http"):
             stats["bad_url"] += 1
             continue
-        u = r["source_url"].split("?")[0].rstrip("/").lower()
+        u = norm_url(r["source_url"])
         if u in urls:
             stats["dup_url"] += 1
             continue
