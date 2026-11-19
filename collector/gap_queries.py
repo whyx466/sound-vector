@@ -44,6 +44,37 @@ NOISE = {
 # 明显是测试/自检产生的记录，不要浪费检索配额
 TEST_PAT = re.compile(r"selftest|自检|测试|(?<![a-z])test(?![a-z])|dummy|asdf", re.I)
 
+# 元问题：问的是「你/本站」本身，不是新闻选题。
+# 这类提问应由问答页本地直接答（见 assistant.js 的 META 分支），
+# 放进补采队列只会拿「介绍一下你自己 音乐」去搜，纯浪费检索配额。
+META_PAT = re.compile(
+    r"介绍(一下)?(你|自己)|你(是|叫|基于|用|们|能|会|怎么|如何|有)|"
+    r"(什么|哪个|啥)模型|模型是|谁(做|开发|创造)的|开发者|收费|免费|"
+    r"怎么用|如何使用|使用说明|有什么功能|你是谁|建议箱|怎么提交|隐私",
+    re.I)
+
+# 地名 → 检索后缀。问「某地有什么动态」时，主体是地名而不是整句，
+# 而且地名配「演出/音乐会」比配「音乐」更容易搜到本地演出资讯。
+PLACES = {
+    "澳门": ("澳门 演唱会 音乐会", "zh-CN", "zh"),
+    "香港": ("香港 演唱会 音乐会", "zh-CN", "zh"),
+    "台北": ("台北 演唱会 音乐祭", "zh-TW", "zh"),
+    "高雄": ("高雄 演唱会 音乐祭", "zh-TW", "zh"),
+    "台湾": ("台湾 演唱会 音乐祭", "zh-TW", "zh"),
+    "新加坡": ("Singapore concert music", "en-SG", "en"),
+    "马来西亚": ("Malaysia concert music", "en-MY", "en"),
+    "吉隆坡": ("Kuala Lumpur concert", "en-MY", "en"),
+    "泰国": ("Thailand concert music", "en-US", "en"),
+    "曼谷": ("Bangkok concert music", "en-US", "en"),
+    "越南": ("Vietnam concert music", "en-US", "en"),
+    "印尼": ("Indonesia concert music", "en-US", "en"),
+    "菲律宾": ("Philippines concert music", "en-US", "en"),
+    "日本": ("日本 ライブ 音楽", "ja-JP", "ja"),
+    "东京": ("東京 ライブ コンサート", "ja-JP", "ja"),
+    "韩国": ("한국 콘서트", "ko-KR", "ko"),
+    "首尔": ("서울 콘서트", "ko-KR", "ko"),
+}
+
 
 def load_key():
     key = os.environ.get("WB_KEY", "").strip()
@@ -85,6 +116,10 @@ def subject_of(question):
     q = str(question or "").strip()
     if not q:
         return ""
+    # 地名优先：问「澳门最近有什么动态」时主体是澳门，不能被切成「澳门有什么新」
+    for place in PLACES:
+        if place in q:
+            return place
     # 英文/数字优先：艺人名、厂牌、榜单名多数是拉丁字母
     latin = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9&.'\-]{1,}", q)
              if w.lower() not in NOISE and len(w) >= 3]
@@ -112,6 +147,10 @@ def subject_of(question):
 
 def to_query(subject):
     """主体词 → (bing query, 市场, 语言, 分类提示)。"""
+    if subject in PLACES:
+        # PLACES 只存三要素，hint 交给下游 guess_category 判，补 None 保持四元组格式
+        q, mkt, lang = PLACES[subject]
+        return (q, mkt, lang, None)
     if re.search(r"[A-Za-z]", subject):
         return (subject + " music", "en-US", "en", None)
     return (subject + " 音乐", "zh-CN", "zh", None)
@@ -149,7 +188,7 @@ def build_gap_queries(limit=8, log=print):
     seen_subject = {}
     for r in rows:
         q = str(r.get("question") or "")
-        if TEST_PAT.search(q):
+        if TEST_PAT.search(q) or META_PAT.search(q):
             continue
         subj = subject_of(q)
         if not subj:
@@ -187,8 +226,12 @@ def main():
         rows = fetch_gaps()
         print("近 %d 小时未收录提问：%d 条" % (WINDOW_H, len(rows)))
         for r in rows:
-            print("  #%s  %s  → 主体「%s」" % (r.get("id"), r.get("question"),
-                                              subject_of(r.get("question")) or "(抽不出主体)"))
+            q = str(r.get("question") or "")
+            if META_PAT.search(q):
+                note = "→ 元问题，由问答页本地回答，不补采"
+            else:
+                note = "→ 主体「%s」" % (subject_of(q) or "(抽不出主体)")
+            print("  #%s  %s  %s" % (r.get("id"), q, note))
         return
 
     queries, gaps = build_gap_queries(args.limit)
