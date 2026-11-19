@@ -51,6 +51,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "out")
 CACHE = os.path.join(HERE, ".proxy.cache")
 
+# 快速模式（云托管 5 分钟班次专用）：境内节点对海外源直连必然超时，
+# 若按默认 57 词×3 variant×22s 跑，一轮要 40+ 分钟，5 分钟节奏被彻底拖垮。
+# 开启后：Bing 只跑前 12 词、单请求 6s、variant 只试第一个；全局 fetch 超时 8s、不重试。
+FAST_MODE = os.environ.get("FAST_MODE", "").strip() in ("1", "true", "yes", "on")
+FAST_TIMEOUT = 8
+FAST_RETRY = 0
+FAST_BING_QUERIES = 12
+
 # 用户「问了但站内没有」的提问 → 本轮定向检索词
 try:
     from gap_queries import build_gap_queries
@@ -196,6 +204,10 @@ def _opener(proxy):
 def fetch(url, timeout=25, retry=2, headers=None, data=None):
     """带代理降级的抓取：失败时切换下一条线路重试。"""
     global _ACTIVE_PROXY
+    # 快速模式：境内节点直连海外源必然超时，压短超时/关重试让单轮回到 5 分钟内
+    if FAST_MODE:
+        timeout = min(timeout, FAST_TIMEOUT)
+        retry = FAST_RETRY
     hd = {"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
           "Accept-Encoding": "gzip"}
     if headers:
@@ -562,6 +574,9 @@ def _bing_fetch(q, mkt, lang):
         "https://www.bing.com/news/search?q=%s&format=RSS&setlang=%s" % (qq, lang),
         "https://www.bing.com/news/search?q=%s&format=RSS" % qq,
     ]
+    # 快速模式：只试第一个 variant（境内直连 Bing 常在第一个就超时，多试无益）
+    if FAST_MODE:
+        variants = variants[:1]
     for i, u in enumerate(variants):
         xml = fetch(u, timeout=22, retry=0)
         if xml and "<item>" in xml:
@@ -616,6 +631,9 @@ def source_bing(limit=30, queries=None, gap_queries=None):
     # gap_queries 是用户「问了但站内没有」的提问，必须单独先跑 --
     # 排在队尾会被 limit*2 的提前 break 直接跳过，那等于没补。
     queue = list(BING_QUERIES if queries is None else queries)
+    if FAST_MODE:
+        # 快速模式只跑前 N 个高价值词，避免 57 词逐个超时拖垮 5 分钟班次
+        queue = queue[:FAST_BING_QUERIES]
     gaps = set(gap_queries or [])
     gap_queue = [x for x in queue if x[0] in gaps]
     main_queue = [x for x in queue if x[0] not in gaps]

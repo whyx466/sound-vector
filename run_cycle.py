@@ -30,6 +30,11 @@ import subprocess
 import sys
 import time
 
+# 云托管 5 分钟班次强制快速模式：境内节点直连海外源/搜狗微信必然超时，
+# 默认参数一轮要 20-40 分钟，节奏被彻底拖垮。快速模式压缩超时与查询数，
+# 让单轮回到 1-3 分钟。大批次（手动/GitHub 境外节点）不设此变量，走完整参数。
+os.environ.setdefault("FAST_MODE", "1")
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 COLLECTOR = os.path.join(HERE, "collector")
 OUT_DIR = os.path.join(COLLECTOR, "out")
@@ -109,12 +114,12 @@ def _run():
     if os.environ.get("CYCLE_WECHAT", "1") != "0":
         summary["steps"].append(run_step(
             "wechat", ["wechat_collect.py", "--pages", "1",
-                       "--max-fetch", wechat_fetch], timeout=1200))
+                       "--max-fetch", wechat_fetch], timeout=240))
 
     # 3. 全球资讯（海外源在境内节点部分失败属预期，脚本内部自动降级）
     summary["steps"].append(run_step(
         "global", ["collect_global.py", "--proxy", "direct",
-                   "--limit", global_limit, "--days", "2"], timeout=1200))
+                   "--limit", global_limit, "--days", "2"], timeout=240))
 
     # 4. 写库：合并本轮新产 batch 文件，一次写入（cloud_writer 自动去重）
     new_batches = sorted(f for f in glob.glob(os.path.join(OUT_DIR, "batch_*.json"))

@@ -30,6 +30,11 @@ OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
+# 快速模式（云托管 5 分钟班次）：搜狗验证码暂停/词间 sleep/正文超时全部压短，
+# 关键词只取前 10 个高价值的，保证单轮 1-2 分钟跑完。
+FAST_MODE = os.environ.get("FAST_MODE", "").strip() in ("1", "true", "yes", "on")
+FAST_KEYWORDS = 10
+
 # 音乐关键词簇：小到民乐/古琴，大到产业/流媒体，尽量覆盖公众号生态。
 KEYWORDS = [
     "音乐", "演唱会", "音乐节", "音乐产业", "唱片", "流媒体音乐",
@@ -48,6 +53,8 @@ def log(msg):
 
 
 def http_get(url, referer=None, timeout=25, tries=2):
+    if FAST_MODE:
+        timeout, tries = 8, 1
     headers = {"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9"}
     if referer:
         headers["Referer"] = referer
@@ -204,15 +211,16 @@ def main():
     else:
         seen = set()
         captcha_hits = 0
-        for kw in KEYWORDS:
+        for kw in (KEYWORDS[:FAST_KEYWORDS] if FAST_MODE else KEYWORDS):
             for p in range(1, args.pages + 1):
                 try:
                     html, _ = sogou_page(kw, p)
                     items = parse_sogou(html)
                 except RuntimeError:
                     captcha_hits += 1
-                    log("!! 搜狗验证码（第 %d 次），暂停 45s 继续" % captcha_hits)
-                    time.sleep(45)
+                    pause = 5 if FAST_MODE else 45
+                    log("!! 搜狗验证码（第 %d 次），暂停 %ss 继续" % (captcha_hits, pause))
+                    time.sleep(pause)
                     continue
                 except Exception as e:
                     log("搜狗异常 %s: %s" % (kw, str(e)[:60]))
@@ -234,7 +242,7 @@ def main():
                     cands.append(it)
                     fresh += 1
                 log("  [%s p%d] 结果 %d 条 -> 新增候选 %d（累计 %d）" % (kw, p, len(items), fresh, len(cands)))
-                time.sleep(random.uniform(1.6, 3.0))
+                time.sleep(random.uniform(0.3, 0.6) if FAST_MODE else random.uniform(1.6, 3.0))
             if len(cands) >= args.max_fetch * 2:
                 log("候选已够，提前结束搜索")
                 break
@@ -243,11 +251,11 @@ def main():
     rows = []
     for i, c in enumerate(cands[: args.max_fetch], 1):
         mp_url = resolve_mp(c["link"])
-        time.sleep(random.uniform(0.6, 1.4))
+        time.sleep(random.uniform(0.15, 0.3) if FAST_MODE else random.uniform(0.6, 1.4))
         if not mp_url:
             continue
         art = fetch_mp(mp_url)
-        time.sleep(random.uniform(0.6, 1.3))
+        time.sleep(random.uniform(0.15, 0.3) if FAST_MODE else random.uniform(0.6, 1.3))
         if not art or not art["title"]:
             continue
         pub = art["publish_date"] or c.get("_date") or ""
