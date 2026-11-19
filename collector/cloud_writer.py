@@ -353,7 +353,7 @@ def filter_rows(rows, existing, limit=0):
     kept, stats = [], {"empty": 0, "bad_url": 0, "dup_url": 0, "dup_title": 0,
                        "non_music": 0, "weak_music": 0, "bad_cat": 0,
                        "rumor": 0, "suspect": 0, "listing_url": 0, "thin_title": 0,
-                       "ops_reject": 0, "ops_rewrite": 0, "scrubbed": 0}
+                       "ops_reject": 0, "ops_rewrite": 0, "scrubbed": 0, "briefed": 0}
     for r in rows:
         if not r["title"] or len(r["title"]) < 4:
             stats["empty"] += 1
@@ -395,6 +395,18 @@ def filter_rows(rows, existing, limit=0):
             stats["scrubbed"] += 1
             r["body"], r["summary"] = b1, s1
             log("  [去噪] %s" % r["title"][:40])
+        # 简讯优先（2026-11-19 用户要求：重点一句话讲透，只有热点才多内容）：
+        # 非热点长文压缩成一句话简讯；热点/报告/音乐史保留正文与数字。
+        if not r.get("is_brief"):
+            chg, ns, nb, nib, nrm = distill.brief_check(
+                r["title"], r.get("summary") or "", r.get("body") or "",
+                r.get("category") or "", bool(r.get("featured")),
+                r.get("external_heat") or 0)
+            if chg:
+                stats["briefed"] += 1
+                r["summary"], r["body"] = ns, nb
+                r["is_brief"], r["read_minutes"] = nib, nrm
+                log("  [简讯] %s" % r["title"][:40])
         u = norm_url(r["source_url"])
         if u in urls:
             stats["dup_url"] += 1
@@ -516,7 +528,7 @@ def main():
         "重复标题 %(dup_title)d / 非音乐 %(non_music)d / 音乐相关性弱 %(weak_music)d / "
         "纠正分类 %(bad_cat)d / 传言剔除 %(rumor)d / 弱来源标存疑 %(suspect)d / "
         "链接不达单篇 %(listing_url)d / 运营稿提炼 %(ops_rewrite)d / 运营稿拒录 %(ops_reject)d / "
-        "噪声清理 %(scrubbed)d" % stats)
+        "噪声清理 %(scrubbed)d / 简讯压缩 %(briefed)d" % stats)
     log("待写入 %d 条" % len(kept))
 
     if args.region:

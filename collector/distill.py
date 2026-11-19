@@ -22,6 +22,7 @@
 """
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -66,8 +67,8 @@ CAST_PAT = re.compile(
 # 无关便民信息（油价调整/限行）、采编署名（编辑/审稿/监制）、跨推区（此前报道/精彩推荐）、
 # 票务模板话术（不退不换/每人一券/敬请留意）。这些行直接丢弃，保留新闻事实。
 
-# 整行丢弃（行内任意位置命中）
-NOISE_LINE_PATS = [re.compile(p) for p in (
+# 整行丢弃（行内任意位置命中）——内置基础规则
+BASE_NOISE_LINE_PATS = [re.compile(p) for p in (
     r"点击(关注|蓝字|领取|查看|进入|阅读|这里|下方)",
     r"(扫码|长按识别|识别二维码|识别小程序)(关注|领取|加入|进群)?",
     r"(搜索|微信搜索|请)?关注\s*[“\"']?[\u4e00-\u9fff]{2,10}[”\"']?\s*"
@@ -93,22 +94,51 @@ NOISE_LINE_PATS = [re.compile(p) for p in (
     r"^[“\"']?[\u4e00-\u9fff]{2,10}[”\"']?\s*(?:视频号|抖音号?|快手号?|公众号|微博|官微|小红书)$",
 )]
 
-# 命中即从该行截断到结尾（跨推区/运营尾巴从这里开始）
-TAIL_CUT_PAT = re.compile(
+# 命中即从该行截断到结尾（跨推区/运营尾巴从这里开始）——内置基础规则
+BASE_TAIL_CUT_PAT = re.compile(
     r"^(?:此\s*前\s*报\s*道|精彩推荐\s*[：:]?|猜你喜欢|往期(?:回顾|精彩)|索票方式|"
     r"加入我们|扫码入群|点击阅读原文|长按扫码关注|具体操作如下图)\s*[：:！!…。.]*$")
+
+# ── 可增长规则库（noise_patterns.json）──
+# 每分钟本地自检（local_tidy.py）累计候选短语，每小时大模型对接复核后晋升到
+# noise_phrases / tail_markers。本模块启动与每次写库前调用 reload_patterns() 热加载。
+PATTERNS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "noise_patterns.json")
+
+NOISE_LINE_PATS = list(BASE_NOISE_LINE_PATS)   # 基础 + 外部规则（合并后）
+TAIL_CUT_PATS = [BASE_TAIL_CUT_PAT]            # 基础 + 外部截断标记（合并后）
+
+
+def reload_patterns():
+    """从 noise_patterns.json 热加载外部噪声规则，合并进匹配列表。"""
+    global NOISE_LINE_PATS, TAIL_CUT_PATS
+    data = {}
+    try:
+        with open(PATTERNS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    phrases = [p for p in (data.get("noise_phrases") or []) if p]
+    tails = [t for t in (data.get("tail_markers") or []) if t]
+    NOISE_LINE_PATS = list(BASE_NOISE_LINE_PATS) + [re.compile(re.escape(p)) for p in phrases]
+    TAIL_CUT_PATS = [BASE_TAIL_CUT_PAT] + [
+        re.compile(r"^\s*" + re.escape(t)) for t in tails]
+    return len(phrases), len(tails)
+
+
+reload_patterns()
 
 
 def scrub(text):
     """清掉关注引流/无关便民信息/署名/跨推区，返回干净文本（保留新闻事实）。"""
     if not text:
         return ""
+    reload_patterns()   # 热加载可增长规则库（每小时对接后即时生效）
     out = []
     for ln in re.split(r"[\r\n]+", text):
         s = ln.strip()
         if not s:
             continue
-        if TAIL_CUT_PAT.match(s):
+        if any(p.match(s) for p in TAIL_CUT_PATS):
             break
         if any(p.search(s) for p in NOISE_LINE_PATS):
             continue
@@ -245,6 +275,65 @@ def analyze(title, body, source=""):
             "reason": "运营稿提炼（标题命中=%s，正文噪声词=%d种）" % (title_hit, noise_kinds)}
 
 
+# ── 简讯优先（2026-11-19 用户要求：重点一句话讲透，只有热点才多内容）──
+# 热点 = featured 编辑推荐 / 外部热度高 / 标题含重大事件词 / 报告与音乐史（默认保留正文与数字）。
+HOT_TITLE_PAT = re.compile(
+    r"官宣|首演|首唱|破纪录|售罄|加场|定档|开唱|巡演|回归|重组|解散|复出|加盟|签约|"
+    r"去世|逝世|获奖|夺冠|格莱美|金钟|新专辑|专辑发布|单曲首发|票房|破亿|世界纪录|"
+    r"里程碑|创纪录|史诗|世纪|重大|独家|首发|重磅", re.I)
+HOT_CATEGORIES = ("report", "history")
+
+# 运营噪声候选词：用于 local_tidy 学习——含这些词的独立短行没被规则库命中时计入候选
+SUSPECT_TOKEN = re.compile(
+    r"关注|扫码|点击|回复|领取|福利|客服|名额|报名|进群|星标|置顶|转发|点赞|收藏|"
+    r"戳这里|戳链接|戳下方|戳图|速来|手慢|别错过|不见不散")
+
+
+def is_hot(title, category="", featured=False, external_heat=0):
+    """是否热点：热点保留多内容，非热点压成一句话。"""
+    if featured:
+        return True
+    try:
+        if external_heat and int(external_heat) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    if (category or "").strip().lower() in HOT_CATEGORIES:
+        return True
+    return bool(HOT_TITLE_PAT.search(title or ""))
+
+
+def one_liner(title, summary, body):
+    """重点一句话讲透：摘要首句 > 正文首句 > 标题。"""
+    for src in (summary, body):
+        s = (src or "").strip()
+        if not s:
+            continue
+        for piece in re.split(r"(?<=[。！？!?；;])", s):
+            piece = piece.strip()
+            if len(piece) >= 10:
+                return piece[:80]
+    return (title or "").strip()[:60]
+
+
+def brief_check(title, summary, body, category="", featured=False, external_heat=0):
+    """非热点长文压缩为一句话简讯；热点/报告/音乐史原样保留。
+
+    返回 (changed, summary, body, is_brief, read_minutes)
+      changed=False 时后面字段都是 None，表示不需要动。
+    """
+    if is_hot(title, category, featured, external_heat):
+        return False, None, None, None, None
+    body = body or ""
+    summary = summary or ""
+    # 已经是简讯就不动（正文不超过一句、摘要不超长）
+    sents = [x for x in re.split(r"(?<=[。！？!?；;])", body) if x.strip()]
+    if len(body) <= 60 and len(sents) <= 1 and len(summary) <= 80:
+        return False, None, None, None, None
+    sent = one_liner(title, summary, body)
+    return True, sent, "", True, 1
+
+
 def selftest():
     cases = [
         {
@@ -328,6 +417,47 @@ def selftest():
         ok = ok and good
         print("[%s] scrub%d. %s | 残留:%s 缺失:%s" % (
             "OK" if good else "FAIL", i, c["name"][:24], bad or "无", missing or "无"))
+    # ── 简讯优先用例（2026-11-19 用户要求：重点一句话讲透，热点才多内容）──
+    brief_cases = [
+        {
+            "name": "非热点长文压成一句话",
+            "kw": {"title": "某歌手出席品牌活动", "category": "gossip", "featured": False,
+                   "body": "某歌手昨日出席某品牌活动，现场演唱了两首歌曲。活动持续约两小时，吸引了数百名粉丝到场。品牌方表示未来将继续合作。", "summary": ""},
+            "want_changed": True,
+        },
+        {
+            "name": "热点（官宣/巡演）保留长文",
+            "kw": {"title": "周杰伦官宣2027世界巡演", "category": "cpop", "featured": False,
+                   "body": "长文" * 200, "summary": ""},
+            "want_changed": False,
+        },
+        {
+            "name": "报告保留长文与数字",
+            "kw": {"title": "2026中国音乐产业发展总报告发布", "category": "report", "featured": False,
+                   "body": "长文" * 200, "summary": ""},
+            "want_changed": False,
+        },
+        {
+            "name": "featured 热点保留",
+            "kw": {"title": "某音乐节阵容公布", "category": "cpop", "featured": True,
+                   "body": "长文" * 200, "summary": ""},
+            "want_changed": False,
+        },
+        {
+            "name": "已是简讯不动",
+            "kw": {"title": "某歌手发布新单曲", "category": "cpop", "featured": False,
+                   "body": "", "summary": "某歌手发布新单曲。"},
+            "want_changed": False,
+        },
+    ]
+    for i, c in enumerate(brief_cases, 1):
+        kw = c["kw"]
+        got = brief_check(kw["title"], kw["summary"], kw["body"], kw["category"],
+                          kw["featured"])
+        good = got[0] == c["want_changed"]
+        ok = ok and good
+        print("[%s] brief%d. %s -> changed=%s | %s" % (
+            "OK" if good else "FAIL", i, c["name"][:26], got[0], (got[1] or "")[:30]))
     print("SELFTEST", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
