@@ -78,8 +78,22 @@ def release_lock():
         pass
 
 
+PROGRESS_FILE = os.path.join(OUT_DIR, "progress.json")
+
+
+def write_progress(phase, detail="", steps=None):
+    """实时进度落盘，/status 可读——解决"跑到哪一步、卡在哪"的监控盲区。"""
+    try:
+        d = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "phase": phase,
+             "detail": detail, "steps": steps or []}
+        with open(PROGRESS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(d, fh, ensure_ascii=False)
+    except Exception:
+        pass
+
+
 def run_step(name, argv, timeout=1200):
-    """跑一个子步骤；失败不抛出，返回结果字典。"""
+    """跑一个子步骤；失败不抛出，返回结果字典。每步完成即刷新进度。"""
     t0 = time.time()
     log("步骤 %s：%s" % (name, " ".join(argv)))
     try:
@@ -87,12 +101,23 @@ def run_step(name, argv, timeout=1200):
                            capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
         tail = ((p.stdout or "") + (p.stderr or ""))[-1200:]
-        return {"step": name, "ok": p.returncode == 0,
-                "sec": round(time.time() - t0, 1),
-                "code": p.returncode, "log_tail": tail}
+        result = {"step": name, "ok": p.returncode == 0,
+                  "sec": round(time.time() - t0, 1),
+                  "code": p.returncode, "log_tail": tail}
+    except subprocess.TimeoutExpired as e:
+        # 超时也收集已产生的 stdout，便于定位卡在哪
+        partial = ""
+        if e.stdout:
+            partial = (e.stdout.decode("utf-8", "replace") if isinstance(e.stdout, bytes)
+                       else e.stdout)
+        result = {"step": name, "ok": False,
+                  "sec": round(time.time() - t0, 1),
+                  "error": "timeout after %ss" % timeout, "log_tail": partial[-1200:]}
     except Exception as e:
-        return {"step": name, "ok": False,
-                "sec": round(time.time() - t0, 1), "error": str(e)[:300]}
+        result = {"step": name, "ok": False,
+                  "sec": round(time.time() - t0, 1), "error": str(e)[:300]}
+    log("步骤 %s 完成 ok=%s %.1fs" % (name, result.get("ok"), result.get("sec", 0)))
+    return result
 
 
 def _run():
@@ -105,21 +130,28 @@ def _run():
 
     before_batches = set(glob.glob(os.path.join(OUT_DIR, "batch_*.json")))
     before_events = set(glob.glob(os.path.join(CHART_DIR, "events_*.json")))
+    write_progress("start", "本轮开始", summary["steps"])
 
     # 1. 榜单监测（Spotify/QQ/网易云/酷狗）
+    write_progress("charts", "榜单监测中", summary["steps"])
     summary["steps"].append(run_step(
-        "charts", ["collect_charts.py", "--proxy", "direct"], timeout=600))
+        "charts", ["collect_charts.py", "--proxy", "direct"], timeout=180))
+    write_progress("charts_done", "榜单完成", summary["steps"])
 
     # 2. 公众号（境内直连优势通道；每词只翻 1 页、抓正文限量，适配 5 分钟班次）
     if os.environ.get("CYCLE_WECHAT", "1") != "0":
+        write_progress("wechat", "公众号采集中", summary["steps"])
         summary["steps"].append(run_step(
             "wechat", ["wechat_collect.py", "--pages", "1",
-                       "--max-fetch", wechat_fetch], timeout=240))
+                       "--max-fetch", wechat_fetch], timeout=150))
+        write_progress("wechat_done", "公众号完成", summary["steps"])
 
-    # 3. 全球资讯（海外源在境内节点部分失败属预期，脚本内部自动降级）
+    # 3. 全球资讯（境内只跑有效的出版社 RSS，四类海外死源已跳过，实测 ~90s）
+    write_progress("global", "全球源采集中（出版社 RSS）", summary["steps"])
     summary["steps"].append(run_step(
         "global", ["collect_global.py", "--proxy", "direct",
-                   "--limit", global_limit, "--days", "2"], timeout=280))
+                   "--limit", global_limit, "--days", "2"], timeout=200))
+    write_progress("global_done", "全球源完成", summary["steps"])
 
     # 4. 写库：合并本轮新产 batch 文件，一次写入（cloud_writer 自动去重）
     new_batches = sorted(f for f in glob.glob(os.path.join(OUT_DIR, "batch_*.json"))
@@ -137,6 +169,7 @@ def _run():
             log("批采文件读取失败 %s：%s" % (f, str(e)[:120]))
 
     events = new_events[-1] if new_events else None
+    write_progress("write", "写库中（%d 条候选）" % len(merged["articles"]), summary["steps"])
     if merged["articles"] or events:
         merged_path = os.path.join(OUT_DIR, "cycle_merged.json")
         with open(merged_path, "w", encoding="utf-8") as fh:
@@ -146,14 +179,15 @@ def _run():
             argv = ["cloud_writer.py", "--limit", str(limit)]
         if events:
             argv += ["--events", events]
-        summary["steps"].append(run_step("write", argv, timeout=1200))
+        summary["steps"].append(run_step("write", argv, timeout=300))
     else:
         summary["steps"].append({"step": "write", "ok": True,
                                  "note": "本轮无新候选，跳过写库"})
 
     # 5. 本地自检（规则引擎零成本；修正队列由每小时 WorkBuddy 自动化消费）
+    write_progress("tidy", "本地自检中", summary["steps"])
     summary["steps"].append(run_step(
-        "tidy", ["local_tidy.py", "--once"], timeout=300))
+        "tidy", ["local_tidy.py", "--once"], timeout=120))
 
     summary["ok"] = all(s.get("ok") for s in summary["steps"])
     summary["new_batches"] = [os.path.basename(f) for f in new_batches]
@@ -163,6 +197,7 @@ def _run():
             json.dump(summary, fh, ensure_ascii=False, indent=2)
     except Exception as e:
         log("写 last_cycle.json 失败：%s" % str(e)[:120])
+    write_progress("done", "本轮结束 ok=%s" % summary["ok"], summary["steps"])
     log("=== 本轮结束 ok=%s ===" % summary["ok"])
     print(json.dumps(summary, ensure_ascii=False)[:4000])
     return 0

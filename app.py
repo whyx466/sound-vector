@@ -101,6 +101,12 @@ def status():
             data = json.load(f)
     except Exception:
         data = None
+    progress = None
+    try:
+        with open(os.path.join(OUT_DIR, "progress.json"), "r", encoding="utf-8") as f:
+            progress = json.load(f)
+    except Exception:
+        progress = None
     return jsonify({
         "busy": _state["busy"],
         "last_started": _state["last_started"],
@@ -108,6 +114,7 @@ def status():
         "trigger": _state["trigger"],
         "cycles_started": _state["cycles_started"],
         "interval_sec": INTERVAL,
+        "progress": progress,
         "env": {
             "WB_KEY": bool(os.environ.get("WB_KEY", "").strip()),
             "GOOGLE_API_KEY": bool(os.environ.get("GOOGLE_API_KEY", "").strip()),
