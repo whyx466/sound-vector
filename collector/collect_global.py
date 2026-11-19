@@ -374,7 +374,11 @@ GEO_RULES = [
     (r"澳门|澳門|macau|macao|cotai|威尼斯人|新濠|银河综艺", "中国澳门"),
     (r"香港|hong kong|hktb|红馆|红磡", "中国香港"),
     (r"台湾|taiwan|taipei", "中国台湾"),
-    (r"中国|大陆|mainland|北京|上海|深圳|广州|腾讯音乐|网易云|音著协|音集协", "中国大陆"),
+    (r"中国|大陆|mainland|北京|上海|深圳|广州|腾讯音乐|网易云|音著协|音集协|"
+     # 英文公司/平台名：标题只写 "Tencent Music reports..." 时无中文地理词，
+     # 会被来源媒体的语区兜底挂错（实测挂在 Music In Africa 名下变成「非洲」）。
+     r"tencent|netease|bytedance|字节跳动|qq\s*music|kugou|kuwo|"
+     r"中国音乐著作权协会|中国音像", "中国大陆"),
     # 东南亚：先判具体国家，再兜到「东南亚」。顺序不能倒，否则「新加坡演唱会」
     # 会被泛东南亚规则吃掉，地区筛选就分不出国别了。
     (r"新加坡|singapore", "新加坡"),
@@ -385,7 +389,10 @@ GEO_RULES = [
     (r"越南|vietnam|hanoi|ho chi minh|河内|河內|胡志明|岘港|峴港", "越南"),
     (r"东南亚|東南亞|southeast asia|south-east asia|asean|东盟|東盟", "东南亚"),
     # --- 全球补源地区（2026-11-19）：地理词 ---
-    (r"\bindia\b|indian|mumbai|delhi|kolkata|chennai|bollywood|भारत|भारतीय", "印度"),
+    (r"\bindia\b|indian|mumbai|delhi|kolkata|chennai|bollywood|भारत|भारतीय|"
+     # 印度各邦与货币线索：「阿萨姆邦音乐会经济」这类稿标题里没有 india 也该归印度
+     r"assam|meghalaya|kerala|punjab|rajasthan|gujarat|tamil nadu|"
+     r"rupee|rupees|₹|卢比|印度卢比", "印度"),
     (r"brasil|brazil|méxico|mexico|argentina|colombia|chile|perú|peru|venezuela|"
      r"latin america|latinoamérica|latinoamerica|são paulo|sao paulo|buenos aires|"
      r"mexico city|rio de janeiro|\brio\b|salsa|reggaeton|cumbia", "拉丁美洲"),
