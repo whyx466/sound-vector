@@ -367,15 +367,14 @@ def guess_category(title, body=""):
     return "west"
 
 
-REGION_RULES = [
+GEO_RULES = [
+    # ===== 地理名词（国家 / 城市）。必须排在流派词之前 =====
     # 澳门必须单列在香港之前：原先和「香港」写在同一条里，凡提到澳门的稿子
     # 一律被归成中国香港，「梓渝澳门演唱会」这种本地演出就挂错了地区。
     (r"澳门|澳門|macau|macao|cotai|威尼斯人|新濠|银河综艺", "中国澳门"),
-    (r"香港|hong kong|hktb|cantopop|粤语|红馆|红磡", "中国香港"),
+    (r"香港|hong kong|hktb|红馆|红磡", "中国香港"),
     (r"台湾|taiwan|taipei", "中国台湾"),
-    (r"韩国|korea|hybe|k-?pop|sm娱乐|jyp", "韩国"),
-    (r"日本|japan|tokyo|oricon|j-?pop", "日本"),
-    (r"中国|大陆|mainland|北京|上海|腾讯音乐|网易云|音著协|音集协", "中国大陆"),
+    (r"中国|大陆|mainland|北京|上海|深圳|广州|腾讯音乐|网易云|音著协|音集协", "中国大陆"),
     # 东南亚：先判具体国家，再兜到「东南亚」。顺序不能倒，否则「新加坡演唱会」
     # 会被泛东南亚规则吃掉，地区筛选就分不出国别了。
     (r"新加坡|singapore", "新加坡"),
@@ -385,43 +384,69 @@ REGION_RULES = [
     (r"菲律宾|菲律賓|philippines|manila|马尼拉|馬尼拉|cebu|宿务|宿霧", "菲律宾"),
     (r"越南|vietnam|hanoi|ho chi minh|河内|河內|胡志明|岘港|峴港", "越南"),
     (r"东南亚|東南亞|southeast asia|south-east asia|asean|东盟|東盟", "东南亚"),
-    (r"英国|uk\b|britain|london|billboard uk|nme", "欧美"),
-    # 美国本土颁奖礼名（2026-11-19 补）：东南亚媒体转报 Taylor Swift 回 CMA 时，标题里
-    # 没有「美国/US」字样，旧规则会一路兜底到域名，把稿子挂成「新加坡」，地区筛选失真。
-    (r"美国|us\b|america|new york|los angeles|nashville|"
+    # --- 全球补源地区（2026-11-19）：地理词 ---
+    (r"\bindia\b|indian|mumbai|delhi|kolkata|chennai|bollywood|भारत|भारतीय", "印度"),
+    (r"brasil|brazil|méxico|mexico|argentina|colombia|chile|perú|peru|venezuela|"
+     r"latin america|latinoamérica|latinoamerica|são paulo|sao paulo|buenos aires|"
+     r"mexico city|rio de janeiro|\brio\b|salsa|reggaeton|cumbia", "拉丁美洲"),
+    (r"africa|nigeria|afrobeats|lagos|kenya|ghana|south africa|johannesburg|"
+     r"cape town|egypt|cairo|morocco|tanzania", "非洲"),
+    (r"russia|russian|москва|москов|россий|moscow|saint petersburg|краснодар", "俄罗斯"),
+    (r"türkiye|turkiye|turkey\b|istanbul|ankara|dubai|emirates|saudi|doha|qatar|"
+     r"israel|tel aviv|iran|tehran|الرياض|دبي", "中东"),
+    # 日韩：地理词（首尔/东京），流派词挪到 GENRE_RULES 做兜底
+    (r"韩国|한국|korea|seoul|서울|hybe|sm娱乐|jyp|yg娱乐", "韩国"),
+    (r"日本|japan|tokyo|osaka|kyoto|oricon|natalie", "日本"),
+    (r"英国|uk\b|britain|london|manchester|billboard uk|nme|"
+     r"germany|deutschland|france|frança|italy|italia|spain|españa|portugal|"
+     r"berlin|berlim|paris|madrid|rome|roma|milan|milano|munich|münchen|hamburg|"
+     r"barcelona|lyon|lisbon|lisboa|amsterdam|stockholm|oslo|copenhagen|"
+     r"wien|vienna|zürich|zurich|prague|praha|brussels", "欧美"),
+    (r"美国|us\b|america|new york|los angeles|nashville|chicago|austin|atlanta|"
      r"cma awards|acm awards|billboard music awards|mtv vmas?|grammy awards|rock and roll hall", "欧美"),
-    (r"global|worldwide|ifpi|cisac|world", "全球"),
+    # 只收真正代表全球口径的机构；worldwide/global/world 常是发行范围
+    # （"Worldwide Concert Film"），不能当报道地区。
+    (r"ifpi|cisac", "全球"),
 ]
+
+# ===== 流派 / 机构名兜底。地理词都没命中时才用 =====
+# 「K-pop comeback in Jakarta」若按流派判会挂到韩国，实际发生在印尼。
+# 所以流派只能当兜底：2026-11-19 把 k-?pop / j-?pop 从国家规则里拆出来挪到这里。
+GENRE_RULES = [
+    (r"cantopop|粤语|粵語|粵語歌", "中国香港"),
+    (r"mandopop|华语流行", "中国大陆"),
+    (r"k-?pop|kpop", "韩国"),
+    (r"j-?pop|jpop", "日本"),
+]
+
+# 兼容旧调用：完整规则序列
+REGION_RULES = GEO_RULES + GENRE_RULES
 
 
 SEA_REGIONS = {"新加坡", "马来西亚", "泰国", "印度尼西亚", "菲律宾", "越南", "东南亚"}
 
 
 def guess_region(title, body="", url=""):
+    """地区判定：标题地理词 > 域名语区 > 流派兜底。
+
+    2026-11-19 改为「标题地理词优先」：Rolling Stone Brasil 报「Bruce Springsteen
+    柏林演唱会」这类稿，若按域名归拉丁美洲就挂错地区了。只有标题里没有地理词时
+    （例：海峡时报报 Taylor Swift 新歌、RS India 报 Michael Jackson 官司）才用
+    媒体所在语区兜底。
+    """
     d = domain_of(url)
-    # 先按域名判定（最稳）：逐个后缀匹配
     dom_reg = None
     for dom, reg in DOMAIN_REGION.items():
         if d == dom or d.endswith("." + dom):
             dom_reg = reg
             break
     t = ((title or "") + " " + (body or "")).lower()
-    # 东南亚本地媒体经常报韩日欧美艺人（新加坡媒体报 Taylor Swift、马来西亚媒体报
-    # NCT 127）。一律按域名判会把它们全堆到新加坡/马来西亚，地区筛选就没了区分度。
-    # 所以东南亚域名下改成：先认标题里的本地国家，再认标题里的其它国家，都不提才用域名。
-    if dom_reg in SEA_REGIONS:
-        for pat, reg in REGION_RULES:
-            if reg in SEA_REGIONS and re.search(pat, t, re.I):
-                return reg
-        for pat, reg in REGION_RULES:
-            # 跳过「全球」：标题里的 worldwide/world 常只是发行范围（"Worldwide Concert Film"），
-            # 不是报道地区，用它覆盖媒体所在地会把本地演出稿误判成全球。
-            if reg not in SEA_REGIONS and reg != "全球" and re.search(pat, t, re.I):
-                return reg
-        return dom_reg
+    for pat, reg in GEO_RULES:
+        if re.search(pat, t, re.I):
+            return reg
     if dom_reg:
         return dom_reg
-    for pat, reg in REGION_RULES:
+    for pat, reg in GENRE_RULES:
         if re.search(pat, t, re.I):
             return reg
     return "全球"
@@ -481,6 +506,28 @@ BING_QUERIES = [
     ("Southeast Asia music festival concert", "en-US", "en", None),
     ("Singapore Malaysia concert tour K-pop", "en-US", "en", None),
     ("Thailand Indonesia Philippines music festival lineup", "en-US", "en", None),
+
+    # --- 印度（2026-11-19 补：南亚最大市场，此前完全空白）---
+    ("India music industry concert", "en-IN", "en", None),
+    ("Bollywood music release tour", "en-IN", "en", None),
+    ("भारत संगीत कंसर्ट", "hi-IN", "hi", None),
+
+    # --- 拉丁美洲（2026-11-19 补）---
+    ("industria musical México concierto gira", "es-MX", "es", None),
+    ("música latina concierto festival", "es-US", "es", None),
+    ("indústria da música Brasil concerto festival", "pt-BR", "pt", None),
+
+    # --- 欧洲本地（2026-11-19 补：德法意西，此前只抓英语媒体）---
+    ("Musikindustrie Deutschland Konzert Festival", "de-DE", "de", None),
+    ("industrie de la musique France concert", "fr-FR", "fr", None),
+    ("industria musicale Italia concerto festival", "it-IT", "it", None),
+    ("actualidad música España concierto gira", "es-ES", "es", None),
+
+    # --- 俄罗斯 / 中东 / 非洲（2026-11-19 补）---
+    ("музыкальная индустрия Россия концерт", "ru-RU", "ru", None),
+    ("Türkiye müzik endüstrisi konser festival", "tr-TR", "tr", None),
+    ("Nigeria Afrobeats concert tour", "en-US", "en", None),
+    ("Africa music industry festival", "en-US", "en", None),
 ]
 
 
@@ -661,6 +708,19 @@ PUBLISHER_FEEDS = [
     ("Detik Hot", "https://hot.detik.com/rss", None),                        # 印尼 娱乐
     ("The Standard TH", "https://www.thestandard.co/rss", None),             # 泰国 综合
     ("Straits Times Life", "https://www.straitstimes.com/news/life/rss.xml", None),  # 新加坡 生活
+
+    # --- 全球补源（2026-11-19 实测 200 且为有效 RSS）：印度 / 拉美 / 欧洲本地 / 非洲 / 俄 / 波兰 ---
+    ("Rolling Stone India", "https://rollingstoneindia.com/feed/", None),           # 印度
+    ("MusicPlus India", "https://www.musicplus.in/feed/", None),                    # 印度
+    ("The Hindu Music", "https://www.thehindu.com/entertainment/music/feeder/default.rss", None),  # 印度（综合媒体音乐频道）
+    ("Rolling Stone Brasil", "https://www.rollingstone.com.br/feed/", None),        # 巴西
+    ("Musikexpress", "https://www.musikexpress.de/feed/", None),                    # 德国
+    ("Tsugi", "https://www.tsugi.fr/feed/", "electro"),                             # 法国 电子
+    ("Rockit", "https://www.rockit.it/rss", None),                                  # 意大利
+    ("MondoSonoro", "https://www.mondosonoro.com/feed/", None),                     # 西班牙
+    ("Music In Africa", "https://www.musicinafrica.net/rss", None),                 # 非洲
+    ("InterMedia", "https://intermedia.ru/feed/", None),                            # 俄罗斯
+    ("Muno", "https://www.muno.pl/rss", None),                                      # 波兰
 ]
 
 # 这些源是综合媒体而不是音乐垂直媒体，必须逐条过音乐关键词才收。
@@ -669,6 +729,8 @@ PUBLISHER_FEEDS = [
 MUSIC_ONLY_FEEDS = {
     "Inquirer Lifestyle", "Thanh Nien Van Hoa", "The Standard TH", "Straits Times Life",
     "Rappler Ent", "VnExpress Giai Tri", "Detik Hot", "Hype MY",
+    # 2026-11-19 全球补源里三个非纯音乐源，同样必须过关键词
+    "The Hindu Music", "Rolling Stone Brasil", "InterMedia",
 }
 
 # 多语言音乐相关性判据（英/中/泰/印尼/越），只在 MUSIC_ONLY_FEEDS 上生效。
@@ -685,7 +747,24 @@ MUSIC_STRONG = re.compile(
     r"歌手|乐团|樂團|乐队|樂隊|巡演|音乐剧|音樂劇|原声|原聲|歌词|歌詞|音乐人|音樂人|"
     r"เพลง|คอนเสิร์ต|อัลบั้ม|นักร้อง|ดนตรี|ศิลปิน|"
     r"\bmusik\b|\blagu\b|\bkonser\b|penyanyi|"
-    r"ca sĩ|bài hát|âm nhạc|nhạc sĩ|ban nhạc",
+    r"ca sĩ|bài hát|âm nhạc|nhạc sĩ|ban nhạc|"
+    # --- 多语种（2026-11-19 补：西/葡/德/法/意/俄/波/印地/土/阿）---
+    r"música|musica|canción|cancion|álbum|álbum|concierto|conciertos|"
+    r"\bgira\b|cantante|cantantes|\bbandas?\b|"
+    r"musik|lied|konzert|konzerte|sänger|saenger|"
+    r"musique|chanson|chanteur|chanteuse|tournée|tournee|"
+    r"canzone|canzoni|concerto|concerti|cantante|"
+    r"музыка|песн|альбом|концерт|концерты|певец|певица|группа|фестивал|"
+    r"muzyka|piosenka|koncert|piosenkarz|zespół|zespol|festiwal|"
+    r"संगीत|गाना|एल्बम|कंसर्ट|गायक|"
+    r"müzik|muzik|şarkı|sarki|albüm|album|şarkıcı|sarkici|"
+    r"موسيقى|أغنية|اغنية|ألبوم|البوم|حفلة|حفلة|مغن|"
+    # 音乐节专名（2026-11-19 补）：葡语/西语标题常只报节名不带 música，
+    # 例 "Rock in Rio anuncia lineup" 会被音乐相关性误判成非音乐而丢弃。
+    r"rock in rio|lollapalooza|coachella|glastonbury|primavera sound|"
+    r"fuji rock|summerfest|sziget|rock am ring|rock im park|"
+    r"download festival|wacken|hellfest|roskilde|exit festival|"
+    r"woodstock|reading festival|leeds festival|splendour",
     re.I)
 
 MUSIC_WEAK = re.compile(
@@ -741,6 +820,13 @@ DOMAIN_REGION = {
     "rappler.com": "菲律宾", "inquirer.net": "菲律宾", "abs-cbn.com": "菲律宾",
     "vnexpress.net": "越南", "thanhnien.vn": "越南", "vietnamnet.vn": "越南",
     "bandwagon.asia": "东南亚",
+    # --- 全球补源域名（2026-11-19）：本地媒体语区固定，比正文关键词可靠 ---
+    "rollingstoneindia.com": "印度", "musicplus.in": "印度", "thehindu.com": "印度",
+    "rollingstone.com.br": "拉丁美洲",
+    "musicinafrica.net": "非洲", "intermedia.ru": "俄罗斯",
+    # 欧洲本地媒体归「欧美」，与既有 203 条欧美稿件口径一致，不另开筛选项
+    "musikexpress.de": "欧美", "tsugi.fr": "欧美", "rockit.it": "欧美",
+    "mondosonoro.com": "欧美", "muno.pl": "欧美",
 }
 
 

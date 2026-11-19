@@ -331,10 +331,19 @@ def filter_rows(rows, existing, limit=0):
     urls, titles = existing
     kept, stats = [], {"empty": 0, "bad_url": 0, "dup_url": 0, "dup_title": 0,
                        "non_music": 0, "weak_music": 0, "bad_cat": 0,
-                       "rumor": 0, "suspect": 0, "listing_url": 0}
+                       "rumor": 0, "suspect": 0, "listing_url": 0, "thin_title": 0}
     for r in rows:
         if not r["title"] or len(r["title"]) < 4:
             stats["empty"] += 1
+            continue
+        # 标题质量（2026-11-19 补）：RSS 首条常是栏目名本身，例「Latest Hits!」「Music」，
+        # 长度够但没有信息量，进库后像一张空白卡片。8 字符以下或纯栏目词一律丢。
+        t_raw = r["title"].strip()
+        if len(t_raw) < 8 or re.fullmatch(
+                r"(latest\s+)?(hits?|news|music|entertainment|videos?|photos?|"
+                r"reviews?|features?|trending|hot\s+news|top\s+stories)\W*",
+                t_raw, re.I):
+            stats["thin_title"] += 1
             continue
         r["title"] = r["title"][:200]
         if not r["source_url"].startswith("http"):
@@ -457,7 +466,7 @@ def main():
     if existing is None:
         return 2
     kept, stats = filter_rows(rows, existing, args.limit)
-    log("过滤：空标题 %(empty)d / 坏链接 %(bad_url)d / 重复链接 %(dup_url)d / "
+    log("过滤：空标题 %(empty)d / 标题无信息量 %(thin_title)d / 坏链接 %(bad_url)d / 重复链接 %(dup_url)d / "
         "重复标题 %(dup_title)d / 非音乐 %(non_music)d / 音乐相关性弱 %(weak_music)d / "
         "纠正分类 %(bad_cat)d / 传言剔除 %(rumor)d / 弱来源标存疑 %(suspect)d / "
         "链接不达单篇 %(listing_url)d" % stats)
