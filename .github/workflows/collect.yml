@@ -2,8 +2,8 @@ name: 声向音乐资讯采集
 
 on:
   schedule:
-    # 每小时整点（GitHub 时间为 UTC，无需换算：整点每小时都一样）
-    - cron: '0 * * * *'
+    # 每小时第 23 分钟（UTC）。错开整点高负载时段——排在 :00 的 cron 最容易被 GitHub 无限拖延
+    - cron: '23 * * * *'
   workflow_dispatch: {}
 
 # 同一时间只跑一个，避免上一轮没跑完就叠加

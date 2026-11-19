@@ -12,7 +12,7 @@
 | 项目 | 状态 |
 |---|---|
 | 代码推送 | 已完成，`main` 分支已同步 |
-| 定时任务 | 已启用，每小时整点（`cron: 0 * * * *`）自动运行 |
+| 定时任务 | 已启用，每小时第 23 分钟（`cron: 23 * * * *`，错峰防拖延）自动运行 |
 | Secret `WB_KEY` | 已配置 |
 | Secret `GOOGLE_API_KEY` | 已配置（YouTube Data API） |
 | Workflow 写权限 | 已设为 Read and write（榜单基线能回写） |
