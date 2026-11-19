@@ -119,7 +119,7 @@ def _run():
     # 3. 全球资讯（海外源在境内节点部分失败属预期，脚本内部自动降级）
     summary["steps"].append(run_step(
         "global", ["collect_global.py", "--proxy", "direct",
-                   "--limit", global_limit, "--days", "2"], timeout=240))
+                   "--limit", global_limit, "--days", "2"], timeout=280))
 
     # 4. 写库：合并本轮新产 batch 文件，一次写入（cloud_writer 自动去重）
     new_batches = sorted(f for f in glob.glob(os.path.join(OUT_DIR, "batch_*.json"))

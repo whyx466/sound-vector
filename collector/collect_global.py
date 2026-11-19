@@ -55,9 +55,12 @@ CACHE = os.path.join(HERE, ".proxy.cache")
 # 若按默认 57 词×3 variant×22s 跑，一轮要 40+ 分钟，5 分钟节奏被彻底拖垮。
 # 开启后：Bing 只跑前 12 词、单请求 6s、variant 只试第一个；全局 fetch 超时 8s、不重试。
 FAST_MODE = os.environ.get("FAST_MODE", "").strip() in ("1", "true", "yes", "on")
-FAST_TIMEOUT = 8
+FAST_TIMEOUT = 5          # 境内直连海外源 5s 无响应即弃（8s 时 41 源累加仍 >240s 超时）
 FAST_RETRY = 0
-FAST_BING_QUERIES = 12
+FAST_BING_QUERIES = 8     # Bing 词 12→8
+FAST_RSS_FEEDS = 8        # 出版社 RSS 41→8（其余 33 源交给 GitHub 境外节点每小时全量补）
+FAST_GNEWS_QUERIES = 4    # 热度校核 15→4
+FAST_YT_QUERIES = 2       # YouTube 5→2
 
 # 用户「问了但站内没有」的提问 → 本轮定向检索词
 try:
@@ -921,8 +924,9 @@ def source_rss(limit=25):
     out = []
     # 源已到 30+（含东南亚）。固定每源 5 条会让排在队尾的东南亚源吃不到配额，
     # 改为按源数动态分配每源条数：34 源 / limit 120 → 每源 3 条。
-    per = max(2, min(5, limit // max(1, len(PUBLISHER_FEEDS))))
-    for name, url, hint in PUBLISHER_FEEDS:
+    feeds = PUBLISHER_FEEDS[:FAST_RSS_FEEDS] if FAST_MODE else PUBLISHER_FEEDS
+    per = max(2, min(5, limit // max(1, len(feeds))))
+    for name, url, hint in feeds:
         if len(out) >= limit * 2:
             break
         xml = fetch(url, timeout=20, retry=0)
@@ -983,7 +987,7 @@ GNEWS_QUERIES = [
 def source_gnews_heat():
     """只产热度榜单：哪个媒体在写什么，用于校核别家源是否漏稿。"""
     rows = []
-    for q, hl, gl, ceid in GNEWS_QUERIES:
+    for q, hl, gl, ceid in (GNEWS_QUERIES[:FAST_GNEWS_QUERIES] if FAST_MODE else GNEWS_QUERIES):
         url = ("https://news.google.com/rss/search?q=%s&hl=%s&gl=%s&ceid=%s:%s"
                % (urllib.parse.quote(q), hl, gl, gl, ceid))
         xml = fetch(url, timeout=25, retry=0)
@@ -1000,7 +1004,7 @@ def source_gnews_heat():
         rows.append({"query": q, "locale": "%s:%s" % (gl, ceid), "count": len(items),
                      "sample": titles[:8]})
         log("  gnews[%s] %-22s -> %d 条（仅计热度）" % (gl, q, len(items)))
-        time.sleep(1.0)
+        time.sleep(0.2 if FAST_MODE else 1.0)
     return rows
 
 
@@ -1019,7 +1023,7 @@ def source_youtube(limit=10):
     if not GOOGLE_API_KEY:
         return []
     out = []
-    for q, _ in YT_QUERIES:
+    for q, _ in (YT_QUERIES[:FAST_YT_QUERIES] if FAST_MODE else YT_QUERIES):
         if len(out) >= limit:
             break
         url = ("https://www.googleapis.com/youtube/v3/search?part=snippet"
