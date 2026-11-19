@@ -500,6 +500,19 @@ BING_QUERIES = [
     # --- 游戏音乐 / 影视原声 ---
     ("游戏音乐 原声 OST", "zh-CN", "zh", None),
     ("video game soundtrack composer", "en-US", "en", None),
+    # 游戏音乐奖项（2026-11-20 补：用户点名 VGA 音乐提名）
+    ("The Game Awards best score music nomination", "en-US", "en", None),
+    ("VGA 游戏音乐 最佳配乐 提名", "zh-CN", "zh", None),
+    ("video game music awards soundtrack of the year", "en-US", "en", None),
+
+    # --- 国内专业音乐奖项（2026-11-20 补：用户点名金钟奖）---
+    ("金钟奖 音乐 获奖 揭晓", "zh-CN", "zh", None),
+    ("金曲奖 入围 得奖 音乐", "zh-CN", "zh", None),
+    ("中国音乐金钟奖 声乐 器乐 比赛", "zh-CN", "zh", None),
+
+    # --- 地方城市音乐会/演出（2026-11-20 补：小到地方剧院）---
+    ("城市 音乐厅 音乐会 上演 剧院", "zh-CN", "zh", None),
+    ("大剧院 交响音乐会 首演 本地", "zh-CN", "zh", None),
 
     # --- 港澳台 / 日韩 ---
     ("香港 音樂 演唱會 紅館", "zh-HK", "zh-HK", None),
@@ -778,7 +791,13 @@ MUSIC_STRONG = re.compile(
     # --- 中文民族乐器 / 非遗 / 戏曲（2026-11-19 补：国琴网古琴稿此前被误杀）---
     r"古琴|古筝|二胡|琵琶|柳琴|扬琴|中阮|大阮|箜篌|编钟|唢呐|马头琴|冬不拉|热瓦普|"
     r"斫琴|琴人|琴家|琴社|古琴制作|民乐|民歌|山歌|花儿|呼麦|长调|侗族大歌|木卡姆|"
-    r"非遗|昆曲|京剧|越剧|粤剧|评弹|南音|戏曲|曲艺|梨园|唱腔",
+    r"非遗|昆曲|京剧|越剧|粤剧|评弹|南音|戏曲|曲艺|梨园|唱腔|"
+    # 具体奖项名（2026-11-20 补）：纯奖项新闻标题常不含"音乐"二字，
+    # 如"第X届金钟奖揭晓""VGA最佳配乐提名"，此前强词不命中+弱词不足会被误杀。
+    r"金钟奖|金曲奖|金马奖|music awards?|golden bell|golden melody|"
+    r"the game awards|\bVGA\b|game award|best score|best soundtrack|"
+    r"配乐奖|原声奖|格莱美|grammy|全英音乐奖|brit awards|mtv vma|"
+    r"公告牌|billboard music|mnet|mma\b|金唱片|golden disc",
     re.I)
 
 MUSIC_WEAK = re.compile(
