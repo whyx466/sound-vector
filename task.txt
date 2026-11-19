@@ -1,0 +1,4 @@
+# SoundVector collector: run every 5 minutes (:02 :07 :12 ...)
+# Installed by start.sh via crontab task.txt
+# Reentry guard: skip if previous round still running (cycle.lock in run_cycle.py)
+2-57/5 * * * * /bin/sh /app/task.sh >> /app/collector/out/cron.log 2>&1
