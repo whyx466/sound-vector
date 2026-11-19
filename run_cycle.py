@@ -34,6 +34,7 @@ import time
 # 默认参数一轮要 20-40 分钟，节奏被彻底拖垮。快速模式压缩超时与查询数，
 # 让单轮回到 1-3 分钟。大批次（手动/GitHub 境外节点）不设此变量，走完整参数。
 os.environ.setdefault("FAST_MODE", "1")
+FAST_MODE = os.environ.get("FAST_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 COLLECTOR = os.path.join(HERE, "collector")
@@ -179,7 +180,13 @@ def _run():
             argv = ["cloud_writer.py", "--limit", str(limit)]
         if events:
             argv += ["--events", events]
-        summary["steps"].append(run_step("write", argv, timeout=300))
+        # 境内云托管节点访问 Google/MyMemory 翻译服务必然超时（每条约 36s），
+        # 30 条即撞满 300s 被强杀、整轮写库失败。快速模式下跳过翻译：
+        # 原文照常入库，中文标题/摘要由小程序端兜底翻译（cloud_writer 注释同口径）。
+        # GitHub 境外节点不设 FAST_MODE，仍逐条翻好中文再入库。
+        if FAST_MODE:
+            argv += ["--no-translate"]
+        summary["steps"].append(run_step("write", argv, timeout=90))
     else:
         summary["steps"].append({"step": "write", "ok": True,
                                  "note": "本轮无新候选，跳过写库"})
