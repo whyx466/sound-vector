@@ -133,6 +133,18 @@ def _run():
     before_events = set(glob.glob(os.path.join(CHART_DIR, "events_*.json")))
     write_progress("start", "本轮开始", summary["steps"])
 
+    # 0. 每小时踢一次 GitHub 境外节点跑海外全量（Bing/GDELT/YT/GNews 境内抓不到）。
+    #    内部按文件节流，5 分钟一轮也只有满 55 分钟才真发一次；失败不影响本轮。
+    try:
+        sys.path.insert(0, COLLECTOR)
+        from gh_kick import kick as gh_kick
+        fired, gh_msg = gh_kick()
+        summary["gh_kick"] = {"fired": fired, "msg": gh_msg}
+        log("GitHub 海外触发检查：%s" % gh_msg)
+    except Exception as e:
+        summary["gh_kick"] = {"fired": False, "msg": "检查异常 %s" % str(e)[:100]}
+        log("GitHub 触发检查异常：%s" % str(e)[:100])
+
     # 1. 榜单监测（Spotify/QQ/网易云/酷狗）
     write_progress("charts", "榜单监测中", summary["steps"])
     summary["steps"].append(run_step(

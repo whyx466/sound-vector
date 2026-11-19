@@ -2,8 +2,10 @@ name: 声向音乐资讯采集
 
 on:
   schedule:
-    # 每小时第 23 分钟（UTC）。错开整点高负载时段——排在 :00 的 cron 最容易被 GitHub 无限拖延
-    - cron: '23 * * * *'
+    # GitHub schedule 会延迟/丢帧，设多个错峰点靠"东方不亮西方亮"提高命中率。
+    # 全部错开整点（:00 的 cron 最容易被无限拖延）。workflow 有 concurrency 防重入、
+    # cloud_writer 有 source_url/title 去重，多跑几次不会重复入库。
+    - cron: '8,28,48 * * * *'
   workflow_dispatch: {}
 
 # 同一时间只跑一个，避免上一轮没跑完就叠加

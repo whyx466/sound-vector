@@ -107,6 +107,13 @@ def status():
             progress = json.load(f)
     except Exception:
         progress = None
+    gh_kick = None
+    try:
+        sys.path.insert(0, os.path.join(HERE, "collector"))
+        from gh_kick import status as gh_status
+        gh_kick = gh_status()
+    except Exception:
+        pass
     return jsonify({
         "busy": _state["busy"],
         "last_started": _state["last_started"],
@@ -115,10 +122,12 @@ def status():
         "cycles_started": _state["cycles_started"],
         "interval_sec": INTERVAL,
         "progress": progress,
+        "gh_kick": gh_kick,
         "env": {
             "WB_KEY": bool(os.environ.get("WB_KEY", "").strip()),
             "GOOGLE_API_KEY": bool(os.environ.get("GOOGLE_API_KEY", "").strip()),
             "COLLECT_TOKEN": bool(TOKEN),
+            "GH_TOKEN": bool(os.environ.get("GH_TOKEN", "").strip()),
         },
         "last_cycle": data,
     })
