@@ -619,8 +619,10 @@ PUBLISHER_FEEDS = [
     ("Billboard", "https://www.billboard.com/feed/", None),
     # 产业媒体不预设 category，交给关键词判定，否则并购/人事新闻会被误塞进 report
     ("Music Business Worldwide", "https://www.musicbusinessworldwide.com/feed/", None),
-    ("Digital Music News", "https://www.digitalmusicnews.com/feed/", None),
-    ("Complete Music Update", "https://www.completemusicupdate.com/feed/", None),
+    # Digital Music News：整站 Cloudflare 520（源站故障），2026-11-19 实测本机与云主机均挂，暂时移除，恢复后可加回
+    # ("Digital Music News", "https://www.digitalmusicnews.com/feed/", None),
+    # CMU：www 子域证书异常（525），去掉 www 正常，2026-11-19 实测 200
+    ("Complete Music Update", "https://completemusicupdate.com/feed", None),
     ("Musically", "https://musically.com/feed/", None),
     ("Variety Music", "https://variety.com/v/music/feed/", None),
     ("Rolling Stone Music", "https://www.rollingstone.com/music/feed/", None),
@@ -632,12 +634,15 @@ PUBLISHER_FEEDS = [
     ("Brooklyn Vegan", "https://www.brooklynvegan.com/feed/", "rock"),
     ("The Guardian Music", "https://www.theguardian.com/music/rss", None),
     ("NPR Music", "https://www.npr.org/rss/rss.php?id=1039", None),
-    ("DJ Mag", "https://djmag.com/rss/news", "electro"),
+    ("DJ Mag", "https://djmag.com/rss", "electro"),
     ("Slipped Disc", "https://slippedisc.com/feed/", "classical"),
     ("Soompi", "https://www.soompi.com/feed", "kpop"),
-    ("Hypebot", "https://www.hypebot.com/hypebot/atom.xml", None),
+    # Hypebot：/hypebot/atom.xml 等全部 404，网站已无 RSS，2026-11-19 实测，移除
+    # ("Hypebot", "https://www.hypebot.com/hypebot/atom.xml", None),
     # --- 演出/现场/场馆/票务 ---
     ("Pollstar", "https://www.pollstar.com/feed", "industry"),
+    # IQ Magazine：国际现场演出产业媒体，补 Hypebot 留下的产业空缺，2026-11-19 实测 200
+    ("IQ Magazine", "https://www.iq-mag.net/feed/", "industry"),
     # --- 音乐剧 / 戏剧 ---
     ("BroadwayWorld", "https://www.broadwayworld.com/rss.cfm", "musical"),
     # --- 古典 / 歌剧 ---

@@ -46,7 +46,6 @@ jobs:
           PYTHONIOENCODING: utf-8
           WB_KEY: ${{ secrets.WB_KEY }}
         run: python collector/cloud_writer.py --limit 40
-        continue-on-error: true
 
       - name: 回写榜单基线（供下一小时对比）
         run: |
@@ -65,10 +64,19 @@ jobs:
 
       - name: 汇总本次产出
         if: always()
+        env:
+          WB_KEY: ${{ secrets.WB_KEY }}
+          PYTHONIOENCODING: utf-8
         run: |
+          echo "### 云端数据库现状" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          python collector/query.py --stats 2>&1 | head -25 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
           echo "### 本次采集结果" >> $GITHUB_STEP_SUMMARY
-          ls -1 collector/out/batch_*.json 2>/dev/null | tail -1 | xargs -r -I{} sh -c 'echo "- 批采文件：`{}`" >> $GITHUB_STEP_SUMMARY'
-          ls -1 collector/out/charts/events_*.json 2>/dev/null | tail -1 | xargs -r -I{} sh -c 'echo "- 榜单事件：`{}`" >> $GITHUB_STEP_SUMMARY'
+          f=$(ls -1t collector/out/batch_*.json 2>/dev/null | head -1)
+          if [ -n "$f" ]; then echo "- 批采文件：$f" >> $GITHUB_STEP_SUMMARY; fi
+          e=$(ls -1t collector/out/charts/events_*.json 2>/dev/null | head -1)
+          if [ -n "$e" ]; then echo "- 榜单事件：$e" >> $GITHUB_STEP_SUMMARY; fi
           python - <<'EOF' >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
           import glob, json
           b = sorted(glob.glob("collector/out/batch_*.json"))
