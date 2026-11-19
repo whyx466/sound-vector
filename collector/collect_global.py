@@ -55,12 +55,16 @@ CACHE = os.path.join(HERE, ".proxy.cache")
 # 若按默认 57 词×3 variant×22s 跑，一轮要 40+ 分钟，5 分钟节奏被彻底拖垮。
 # 开启后：Bing 只跑前 12 词、单请求 6s、variant 只试第一个；全局 fetch 超时 8s、不重试。
 FAST_MODE = os.environ.get("FAST_MODE", "").strip() in ("1", "true", "yes", "on")
-FAST_TIMEOUT = 5          # 境内直连海外源 5s 无响应即弃（8s 时 41 源累加仍 >240s 超时）
+FAST_TIMEOUT = 5          # 境内直连海外源 5s 无响应即弃
 FAST_RETRY = 0
-FAST_BING_QUERIES = 8     # Bing 词 12→8
-FAST_RSS_FEEDS = 8        # 出版社 RSS 41→8（其余 33 源交给 GitHub 境外节点每小时全量补）
-FAST_GNEWS_QUERIES = 4    # 热度校核 15→4
-FAST_YT_QUERIES = 2       # YouTube 5→2
+FAST_BING_QUERIES = 8     # 保留参数（GitHub 境外全量模式不受影响）
+FAST_RSS_FEEDS = 41       # 境内唯一稳定有效的源：41 个出版社 RSS 全跑（覆盖全球），不再裁剪
+FAST_GNEWS_QUERIES = 4
+FAST_YT_QUERIES = 2
+# 根治：境内直连 Bing/GDELT/YouTube/GoogleNews 实测 0 产出却耗 116s，
+# FAST_MODE 下直接跳过，把时间全留给稳定有效的出版社 RSS。
+# 这些源由 GitHub 境外节点（无 FAST_MODE）全量补采——那边访问海外源快。
+FAST_SKIP_REMOTE = FAST_MODE and os.environ.get("FAST_KEEP_REMOTE", "").strip() not in ("1", "true", "yes", "on")
 
 # 用户「问了但站内没有」的提问 → 本轮定向检索词
 try:
@@ -926,8 +930,13 @@ def source_rss(limit=25):
     # 改为按源数动态分配每源条数：34 源 / limit 120 → 每源 3 条。
     feeds = PUBLISHER_FEEDS[:FAST_RSS_FEEDS] if FAST_MODE else PUBLISHER_FEEDS
     per = max(2, min(5, limit // max(1, len(feeds))))
+    # 快速模式时间预算：临近预算就停止抓新源，保证正常收尾落盘（不被外部 timeout 强杀丢 batch）
+    deadline = time.monotonic() + 150 if FAST_MODE else None
     for name, url, hint in feeds:
         if len(out) >= limit * 2:
+            break
+        if deadline and time.monotonic() > deadline:
+            log("  rss 时间预算到（已收 %d 条），收尾落盘" % len(out))
             break
         xml = fetch(url, timeout=20, retry=0)
         if not xml:
@@ -1112,22 +1121,28 @@ def main():
         except Exception as e:
             log("未收录提问读取失败，跳过：%s" % str(e)[:100])
 
+    # 境内快速模式：四类海外源（Bing/GDELT/YouTube/GNews）实测 0 产出却耗 116s，
+    # 直接跳过，只跑稳定有效的出版社 RSS。海外源全量交给 GitHub 境外节点每小时补。
+    # 显式 --source 指定的源仍照跑（便于手动单独调试某个源）。
     if args.source in ("all", "rss"):
-        log("-- 出版社 RSS --")
+        log("-- 出版社 RSS（%s） --" % ("全量" if FAST_MODE else "全量"))
         rows += source_rss(per)
-    if args.source in ("all", "bing"):
-        log("-- Bing News RSS --")
-        rows += source_bing(per, queries=BING_QUERIES + gap_qs,
-                            gap_queries=[q[0] for q in gap_qs])
-    if args.source in ("all", "gdelt"):
-        log("-- GDELT --")
-        rows += source_gdelt(max(12, per // 3))
-    if args.source in ("all", "youtube"):
-        log("-- YouTube Data API v3 --")
-        rows += source_youtube(min(12, per // 4))
-    if args.source in ("all", "gnews"):
-        log("-- Google News（热度） --")
-        heat = source_gnews_heat()
+    if not FAST_SKIP_REMOTE or args.source != "all":
+        if args.source in ("all", "bing"):
+            log("-- Bing News RSS --")
+            rows += source_bing(per, queries=BING_QUERIES + gap_qs,
+                                gap_queries=[q[0] for q in gap_qs])
+        if args.source in ("all", "gdelt"):
+            log("-- GDELT --")
+            rows += source_gdelt(max(12, per // 3))
+        if args.source in ("all", "youtube"):
+            log("-- YouTube Data API v3 --")
+            rows += source_youtube(min(12, per // 4))
+        if args.source in ("all", "gnews"):
+            log("-- Google News（热度） --")
+            heat = source_gnews_heat()
+    elif FAST_SKIP_REMOTE and args.source == "all":
+        log("-- 境内快速模式：跳过 Bing/GDELT/YouTube/GNews（0 产出且耗时），由 GitHub 境外全量补 --")
 
     # 分类 / 地区 / 摘要补齐
     for r in rows:
