@@ -7,6 +7,9 @@ collector/.google_key
 collector/.wb_key
 collector/.proxy.cache
 
+# 本机一键推送脚本（只给自己用，不需要进仓库）
+push-to-github.bat
+
 # 每次运行产生的临时产出（榜单基线除外）
 collector/out/batch_*.json
 collector/out/report_*.md
