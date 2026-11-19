@@ -353,7 +353,7 @@ def filter_rows(rows, existing, limit=0):
     kept, stats = [], {"empty": 0, "bad_url": 0, "dup_url": 0, "dup_title": 0,
                        "non_music": 0, "weak_music": 0, "bad_cat": 0,
                        "rumor": 0, "suspect": 0, "listing_url": 0, "thin_title": 0,
-                       "ops_reject": 0, "ops_rewrite": 0}
+                       "ops_reject": 0, "ops_rewrite": 0, "scrubbed": 0}
     for r in rows:
         if not r["title"] or len(r["title"]) < 4:
             stats["empty"] += 1
@@ -387,6 +387,14 @@ def filter_rows(rows, existing, limit=0):
             r["is_brief"] = True
             r["read_minutes"] = 1
             log("  [提炼] %s" % d["title"])
+        # 去噪声（2026-11-19 用户二次投诉：关注xxx/油价xxx/编辑署名/此前报道跨推
+        # 这类没用信息不该出现在正文里）。保留新闻事实，清掉引流与运营尾巴。
+        b0, s0 = r.get("body") or "", r.get("summary") or ""
+        b1, s1 = distill.scrub(b0), distill.scrub(s0)
+        if b1 != b0 or s1 != s0:
+            stats["scrubbed"] += 1
+            r["body"], r["summary"] = b1, s1
+            log("  [去噪] %s" % r["title"][:40])
         u = norm_url(r["source_url"])
         if u in urls:
             stats["dup_url"] += 1
@@ -507,7 +515,8 @@ def main():
     log("过滤：空标题 %(empty)d / 标题无信息量 %(thin_title)d / 坏链接 %(bad_url)d / 重复链接 %(dup_url)d / "
         "重复标题 %(dup_title)d / 非音乐 %(non_music)d / 音乐相关性弱 %(weak_music)d / "
         "纠正分类 %(bad_cat)d / 传言剔除 %(rumor)d / 弱来源标存疑 %(suspect)d / "
-        "链接不达单篇 %(listing_url)d / 运营稿提炼 %(ops_rewrite)d / 运营稿拒录 %(ops_reject)d" % stats)
+        "链接不达单篇 %(listing_url)d / 运营稿提炼 %(ops_rewrite)d / 运营稿拒录 %(ops_reject)d / "
+        "噪声清理 %(scrubbed)d" % stats)
     log("待写入 %d 条" % len(kept))
 
     if args.region:
