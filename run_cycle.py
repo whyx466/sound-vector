@@ -192,13 +192,11 @@ def _run():
             argv = ["cloud_writer.py", "--limit", str(limit)]
         if events:
             argv += ["--events", events]
-        # 境内云托管节点访问 Google/MyMemory 翻译服务必然超时（每条约 36s），
-        # 30 条即撞满 300s 被强杀、整轮写库失败。快速模式下跳过翻译：
-        # 原文照常入库，中文标题/摘要由小程序端兜底翻译（cloud_writer 注释同口径）。
-        # GitHub 境外节点不设 FAST_MODE，仍逐条翻好中文再入库。
-        if FAST_MODE:
-            argv += ["--no-translate"]
-        summary["steps"].append(run_step("write", argv, timeout=90))
+        # 翻译：境内 FAST_MODE 下 translate_zh 已把 mymemory（1.6s 可达）提到首位
+        # 并跳过不可达的 Google 端点，30 条约 50s，故不再 --no-translate——外文稿
+        # 入库即带中文标题/摘要（用户明确要求译文，不再依赖小程序端兜底）。
+        # GitHub 境外节点不设 FAST_MODE，仍优先 Google 高质量翻译。
+        summary["steps"].append(run_step("write", argv, timeout=150))
     else:
         summary["steps"].append({"step": "write", "ok": True,
                                  "note": "本轮无新候选，跳过写库"})

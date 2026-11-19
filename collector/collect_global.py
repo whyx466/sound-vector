@@ -846,6 +846,25 @@ def music_relevant(title, desc):
     weak = set(m.group(0).lower() for m in MUSIC_WEAK.finditer(head))
     return len(weak) >= 2
 
+
+# 明确非音乐主题——对**所有源**生效（含 Billboard/BroadwayWorld 这类音乐垂直源）。
+# 背景：垂直源在白名单里跳过 music_relevant，但其 RSS 也会混入非音乐稿：
+#   实测 id793「SPY×FAMILY Vol.18 … Billboard Japan Book Hot 100」= 漫画书销量榜，
+#        id792「Much Ado About Nothing … Watch Live at 3pm」= 莎翁话剧红毯预告。
+# 这些主题命中即拒，不依赖来源可信度。措辞保守，避免误杀真正的音乐稿。
+NONMUSIC_BLOCK = re.compile(
+    r"\bbook hot\b|\bbook chart\b|bestseller|\bmanga\b|\bcomics?\b|graphic novel|"
+    r"light novel|\bvol\.?\s*\d|漫画|图书|书榜|绘本|小说|"
+    r"opening night red carpet|watch live at|red carpet.{0,40}watch live|"
+    r"\bshakespeare\b|\bplaywright\b|话剧",
+    re.I)
+
+
+def obvious_nonmusic(title, desc):
+    """明确的非音乐主题，命中即拒（对白名单垂直源也生效）。"""
+    head = (title or "") + " " + (desc or "")[:160]
+    return bool(NONMUSIC_BLOCK.search(head))
+
 # 域名画像：媒体所在语区基本固定，比正文关键词更准，优先采用
 DOMAIN_REGION = {
     "billboard.com": "欧美", "variety.com": "欧美", "rollingstone.com": "欧美",
@@ -951,6 +970,10 @@ def source_rss(limit=25):
             if got >= per:
                 break
             if not title or not link.startswith("http"):
+                continue
+            # 明确非音乐主题对所有源生效（含白名单垂直源），先拦一道
+            if obvious_nonmusic(title, desc):
+                skipped += 1
                 continue
             if music_only and not music_relevant(title, desc):
                 skipped += 1

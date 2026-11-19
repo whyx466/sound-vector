@@ -133,12 +133,18 @@ def _parse_any(raw):
     return ""
 
 
-# 按可用性从高到低试。clients5 是最宽松的一个，gtx 常被限流，mymemory 质量差但兜底。
-_ENDPOINTS = [
+# 端点按可用性从高到低试。
+# 境内节点（微信云托管）访问 Google 的 clients5/gtx 必超时（每条各耗 12s，
+# 30 条就撞满写库 timeout 被强杀）——这正是此前被迫 --no-translate 的根因。
+# 实测 mymemory 境内 1.6s 可达且译文可用，故境内模式把它提到首位并跳过 Google。
+# GitHub 境外节点不设 FAST_MODE，仍优先 Google（质量更好），mymemory 兜底。
+_FAST = os.environ.get("FAST_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+_GOOGLE = [
     ("clients5", "https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl={tl}&q={q}"),
     ("gtx", "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={tl}&dt=t&q={q}"),
-    ("mymemory", "https://api.mymemory.translated.net/get?langpair=Autodetect|{tl}&q={q}"),
 ]
+_MYMEMORY = ("mymemory", "https://api.mymemory.translated.net/get?langpair=Autodetect|{tl}&q={q}")
+_ENDPOINTS = ([_MYMEMORY] + _GOOGLE) if _FAST else (_GOOGLE + [_MYMEMORY])
 
 
 def translate_once(text, opener, target="zh-CN"):
@@ -151,7 +157,7 @@ def translate_once(text, opener, target="zh-CN"):
                 "User-Agent": UA,
                 "Accept": "application/json,text/plain,*/*",
             })
-            with opener.open(req, timeout=12) as r:
+            with opener.open(req, timeout=6 if _FAST else 12) as r:
                 zh = _parse_any(r.read().decode("utf-8", "ignore"))
             # 结果必须真含汉字：某些后端会把报错当译文返回，直接用会把英文错误写进库。
             if zh and HAN_RE.search(zh):
