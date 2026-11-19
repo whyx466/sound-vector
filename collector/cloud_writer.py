@@ -75,6 +75,21 @@ NON_MUSIC_PAT = re.compile(
     r"hints? (and )?(answers? )?for today|"
     r"玩家|游戏评分|发售日|抢玩|改区|销量榜)\b", re.I)
 
+# 舞台/文学类干扰：BroadwayWorld、Slipped Disc 这类站既发音乐剧也发话剧、
+# 书评与文学节，光靠域名放行会混进「莎士比亚戏剧节」「诗人谈书」。
+# 这里点名拦截，标题命中就直接不收（正文里出现不算，避免误杀音乐剧稿件）。
+STAGE_NON_MUSIC_PAT = re.compile(
+    r"莎士比亚|shakespeare|话剧|話劇|舞台剧《|戏剧节|戲劇節|戏剧评论|"
+    r"诗人|詩人|诗集|詩集|书评|書評|文学节|文學節|"
+    r"\bplayhouse\b|book festival|poet\b",
+    re.I)
+
+# 与上面配套的豁免项：同一标题里出现了这些，说明确实是音乐类演出报道。
+STAGE_EXEMPT_PAT = re.compile(
+    r"音乐剧|音樂劇|musical\b|歌剧|歌劇|opera\b|concert|演唱会|演唱會|"
+    r"交响|交響|symphony|ballet|芭蕾|音乐节|音樂節|festival lineup",
+    re.I)
+
 # 攻略/游戏/体育栏目的路径，即便来源是音乐媒体也不收。
 NON_MUSIC_URL_PAT = re.compile(r"/(gaming-guides?|game-guides?|wordle|connections|crossword)/", re.I)
 
@@ -95,8 +110,7 @@ MUSIC_DOMAINS = {
     "billboard.com", "musicbusinessworldwide.com", "digitalmusicnews.com",
     "completemusicupdate.com", "musically.com", "pitchfork.com", "stereogum.com",
     "spin.com", "brooklynvegan.com", "djmag.com",
-    "slippedisc.com", "pollstar.com", "broadwayworld.com",
-    "operanews.com", "hypebot.com",
+    "pollstar.com", "operanews.com", "hypebot.com",
 }
 
 # 一手来源：机构/公司/平台官网。这些域名上的公告就是原始出处，可直接 verified。
@@ -351,6 +365,12 @@ def filter_rows(rows, existing, limit=0):
                 stats["non_music"] += 1
                 continue
             if NON_MUSIC_URL_PAT.search(r["source_url"]):
+                stats["non_music"] += 1
+                continue
+            # 舞台/文学类：标题点名「莎士比亚/话剧/诗人/书评」就挡，除非同句里有
+            # 明确的音乐形式（"音乐剧《莎士比亚》"/"musical at Playhouse"），
+            # 那种是正经音乐剧报道，不能误杀。
+            if STAGE_NON_MUSIC_PAT.search(r["title"]) and not STAGE_EXEMPT_PAT.search(r["title"]):
                 stats["non_music"] += 1
                 continue
             # 严格模式：既不含音乐关键词、又非音乐垂媒 → 判为不相关

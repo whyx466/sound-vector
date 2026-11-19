@@ -368,7 +368,10 @@ def guess_category(title, body=""):
 
 
 REGION_RULES = [
-    (r"香港|hong kong|hktb|cantopop|粤语|澳门|macau|macao", "中国香港"),
+    # 澳门必须单列在香港之前：原先和「香港」写在同一条里，凡提到澳门的稿子
+    # 一律被归成中国香港，「梓渝澳门演唱会」这种本地演出就挂错了地区。
+    (r"澳门|澳門|macau|macao|cotai|威尼斯人|新濠|银河综艺", "中国澳门"),
+    (r"香港|hong kong|hktb|cantopop|粤语|红馆|红磡", "中国香港"),
     (r"台湾|taiwan|taipei", "中国台湾"),
     (r"韩国|korea|hybe|k-?pop|sm娱乐|jyp", "韩国"),
     (r"日本|japan|tokyo|oricon|j-?pop", "日本"),
