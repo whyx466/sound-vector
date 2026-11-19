@@ -54,6 +54,8 @@ jobs:
           git config user.email "bot@users.noreply.github.com"
           git config core.quotepath false
           git add collector/out/charts/_last_snapshot.json
+          # 用户提问的补采状态：不提交的话每轮都会重复搜同一批问题
+          git add collector/out/state 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "榜单无变化，无需提交"
           else

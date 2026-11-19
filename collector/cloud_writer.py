@@ -276,7 +276,8 @@ def build_rows(batch_path, events_path):
                 "featured": False,
                 "region": a.get("region") or "全球",
                 "is_brief": True,
-                "_origin": "batch",
+                # gap = 用户问了但站内没有，采集器定向补抓回来的稿件
+                "_origin": a.get("_origin") or "batch",
             })
     if events_path:
         j = load_json(events_path) or {}
@@ -353,8 +354,12 @@ def filter_rows(rows, existing, limit=0):
                 stats["non_music"] += 1
                 continue
             # 严格模式：既不含音乐关键词、又非音乐垂媒 → 判为不相关
+            # gap 例外：用户点名问的人/事，标题里往往没有 music/album
+            # （如「BIGBANG 近况」），再卡关键词就永远补不上。
             hay = r["title"] + " " + (r.get("summary") or "")
-            if not MUSIC_PAT.search(hay) and not _is_music_domain(r["source_url"]):
+            if (r.get("_origin") != "gap"
+                    and not MUSIC_PAT.search(hay)
+                    and not _is_music_domain(r["source_url"])):
                 stats["weak_music"] += 1
                 continue
         if r["category"] not in VALID_CATEGORIES:

@@ -141,6 +141,7 @@ Actions → 点某次运行 → 底部 **Summary** 会写本次抓了多少候�
 |---|---|---|
 | 榜单监测 | `collect_charts.py` | 抓 Spotify（全球/美/英/日/韩/港/台）、QQ音乐、网易云、酷狗共 16 个榜单，**只在榜首易主/新歌空降/大幅跃升时**生成一条简讯，无变化不写 |
 | 资讯采集 | `collect_global.py` | 20+ 音乐媒体 RSS + 25 组 Bing 关键词（演出场所/音乐剧/古典/民族/游戏音乐/全球大奖等）+ YouTube + GDELT |
+| 补用户提问 | `gap_queries.py` | 读小程序里「问了但站内没有」的提问，抽出主体词（如 BIGBANG）做定向检索，每轮最多补 6 条 |
 | 写库 | `cloud_writer.py` | 先去云端拉已有 source_url/标题做去重，再做「必须含音乐关键词或来自音乐垂媒」的过滤，最后逐条写入 |
 
 ## 安全边界
@@ -176,6 +177,22 @@ python collector/cloud_writer.py --dry-run
 ```
 
 本地运行时密钥从 `collector/.wb_key` 读取（该文件已被 .gitignore 排除，不会上传）。
+
+## 用户问过但没收录的内容，谁来补
+
+小程序问答页每次判「本站暂未收录」时，会把问题写进云端的 `search_queries` 表（`status=miss`）。
+每小时这一轮采集开始前，`gap_queries.py` 会读这些记录：
+
+1. 从问句里抽主体词（「BIGBANG 最近有什么新动向」→ `BIGBANG`），去掉「最近/近况/什么」这类噪音；
+2. 组成定向检索词（`BIGBANG music` / `周杰伦 音乐`），**排在所有固定关键词之前**先跑，避免被条数上限截掉；
+3. 命中的稿件标记为 `gap` 来源，写库时豁免「必须含音乐关键词」那一道（否则「BIGBANG 近况」这种标题会被误杀），但仍要过非音乐拦截；
+4. 检索状态记在 `collector/out/state/gaps.json`，同一条 24 小时内不重复搜。
+
+看当前欠了哪些选题：
+
+```bash
+python collector/gap_queries.py --list
+```
 
 ## 外文稿件自动译成中文
 

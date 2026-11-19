@@ -51,6 +51,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "out")
 CACHE = os.path.join(HERE, ".proxy.cache")
 
+# 用户「问了但站内没有」的提问 → 本轮定向检索词
+try:
+    from gap_queries import build_gap_queries
+except Exception:  # 单文件运行/裁剪部署时不该因此中断采集
+    def build_gap_queries(limit=6, log=print):
+        return [], []
+
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
@@ -489,46 +496,65 @@ def _bing_fetch(q, mkt, lang):
     return None
 
 
-def source_bing(limit=30):
+def _bing_one(q, mkt, lang, hint, per, out, is_gap=False):
+    """跑一个检索词，把结果追加进 out。返回本次条数。"""
+    xml = _bing_fetch(q, mkt, lang)
+    if not xml:
+        log("  bing[%s] %-28s -> 0 条" % (mkt, q))
+        return 0
+    items = re.findall(r"<item>(.*?)</item>", xml, re.S)
+    got = 0
+    for it in items[:per]:
+        m_t = re.search(r"<title>(.*?)</title>", it, re.S)
+        m_l = re.search(r"<link>(.*?)</link>", it, re.S)
+        m_d = re.search(r"<pubDate>(.*?)</pubDate>", it, re.S)
+        m_desc = re.search(r"<description>(.*?)</description>", it, re.S)
+        if not (m_t and m_l):
+            continue
+        title = strip_tags(m_t.group(1))
+        link = clean_url(m_l.group(1))
+        if not title or not link.startswith("http"):
+            continue
+        if "bing.com" in link:   # 没解析出原文的丢弃
+            continue
+        out.append({
+            "title": title,
+            "source_url": link,
+            "source": domain_of(link),
+            "publish_date": parse_date(m_d.group(1) if m_d else ""),
+            "summary": strip_tags(m_desc.group(1) if m_desc else "")[:160],
+            "category_hint": hint,
+            "via": "bing",
+            # 用户点名要的选题：写库时跳过「音乐关键词」严格过滤，
+            # 但仍要过非音乐拦截（游戏/体育账号的推文照样挡）。
+            "_origin": "gap" if is_gap else "",
+        })
+        got += 1
+    log("  bing[%s] %-28s -> %d 条%s" % (mkt, q, got, "  ← 用户提问" if is_gap else ""))
+    time.sleep(1.0)
+    return got
+
+
+def source_bing(limit=30, queries=None, gap_queries=None):
     out = []
     # 关键词已扩到 30+ 个（含东南亚）。写死「每词 6 条」会让总条数在第 20 个词就吃满
     # limit，排队尾的东南亚/音乐剧/场馆词永远跑不到。改成按词数动态分配每词条数：
     # 33 词 / limit 120 → 每词 3 条，全部关键词都能执行。
-    per = max(2, min(6, limit // max(1, len(BING_QUERIES))))
-    for q, mkt, lang, hint in BING_QUERIES:
+    # gap_queries 是用户「问了但站内没有」的提问，必须单独先跑 --
+    # 排在队尾会被 limit*2 的提前 break 直接跳过，那等于没补。
+    queue = list(BING_QUERIES if queries is None else queries)
+    gaps = set(gap_queries or [])
+    gap_queue = [x for x in queue if x[0] in gaps]
+    main_queue = [x for x in queue if x[0] not in gaps]
+
+    for q, mkt, lang, hint in gap_queue:
+        _bing_one(q, mkt, lang, hint, 6, out, is_gap=True)
+
+    per = max(2, min(6, limit // max(1, len(main_queue))))
+    for q, mkt, lang, hint in main_queue:
         if len(out) >= limit * 2:
             break
-        xml = _bing_fetch(q, mkt, lang)
-        if not xml:
-            log("  bing[%s] %-28s -> 0 条" % (mkt, q))
-            continue
-        items = re.findall(r"<item>(.*?)</item>", xml, re.S)
-        got = 0
-        for it in items[:per]:
-            m_t = re.search(r"<title>(.*?)</title>", it, re.S)
-            m_l = re.search(r"<link>(.*?)</link>", it, re.S)
-            m_d = re.search(r"<pubDate>(.*?)</pubDate>", it, re.S)
-            m_desc = re.search(r"<description>(.*?)</description>", it, re.S)
-            if not (m_t and m_l):
-                continue
-            title = strip_tags(m_t.group(1))
-            link = clean_url(m_l.group(1))
-            if not title or not link.startswith("http"):
-                continue
-            if "bing.com" in link:   # 没解析出原文的丢弃
-                continue
-            out.append({
-                "title": title,
-                "source_url": link,
-                "source": domain_of(link),
-                "publish_date": parse_date(m_d.group(1) if m_d else ""),
-                "summary": strip_tags(m_desc.group(1) if m_desc else "")[:160],
-                "category_hint": hint,
-                "via": "bing",
-            })
-            got += 1
-        log("  bing[%s] %-28s -> %d 条" % (mkt, q, got))
-        time.sleep(1.0)
+        _bing_one(q, mkt, lang, hint, per, out)
     return out
 
 
@@ -915,6 +941,8 @@ def main():
                     choices=["all", "bing", "gdelt", "rss", "youtube", "gnews"])
     ap.add_argument("--proxy", default=None)
     ap.add_argument("--days", type=int, default=3)
+    ap.add_argument("--gaps", type=int, default=6,
+                    help="额外为「用户问过但站内没有」的提问跑几个定向检索（0=关闭）")
     args = ap.parse_args()
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -927,12 +955,21 @@ def main():
     rows, heat = [], []
     per = args.limit
 
+    # 先取「未收录提问」：它们决定这一轮额外要搜什么。取不到不影响正常采集。
+    gap_qs, gap_items = [], []
+    if args.gaps > 0 and args.source in ("all", "bing"):
+        try:
+            gap_qs, gap_items = build_gap_queries(args.gaps, log=log)
+        except Exception as e:
+            log("未收录提问读取失败，跳过：%s" % str(e)[:100])
+
     if args.source in ("all", "rss"):
         log("-- 出版社 RSS --")
         rows += source_rss(per)
     if args.source in ("all", "bing"):
         log("-- Bing News RSS --")
-        rows += source_bing(per)
+        rows += source_bing(per, queries=BING_QUERIES + gap_qs,
+                            gap_queries=[q[0] for q in gap_qs])
     if args.source in ("all", "gdelt"):
         log("-- GDELT --")
         rows += source_gdelt(max(12, per // 3))
@@ -974,7 +1011,9 @@ def main():
     log("去重后 %d 条，近 %d 天 %d 条" % (len(rows), args.days, len(fresh)))
 
     # 按分类分布排序，保证板块不偏科
-    fresh.sort(key=lambda r: (r["publish_date"], r["title"]), reverse=True)
+    fresh.sort(key=lambda r: r["publish_date"], reverse=True)
+    # 稳定排序再按来源分组：用户点名要的选题排最前，别被 limit 卡在门外
+    fresh.sort(key=lambda r: 0 if r.get("_origin") == "gap" else 1)
     picked, cap = [], {}
     for r in fresh:
         c = r["category"]
@@ -991,7 +1030,8 @@ def main():
     with open(batch_path, "w", encoding="utf-8") as f:
         json.dump({"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                    "proxy": p, "count": len(picked),
-                   "articles": picked, "heat": heat}, f, ensure_ascii=False, indent=1)
+                   "articles": picked, "heat": heat,
+                   "gap_queries": gap_items}, f, ensure_ascii=False, indent=1)
 
     # 人读汇总
     lines = ["# 全球采集批次 %s" % stamp, "",
