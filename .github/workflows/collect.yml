@@ -15,6 +15,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write   # 允许用内置 GITHUB_TOKEN dispatch 自己，维持每小时自接力
 
 jobs:
   collect:
@@ -90,3 +91,54 @@ jobs:
               d = json.load(open(e[-1], encoding="utf-8"))
               print("- 榜单变化事件：%d 条" % d.get("count", 0))
           EOF
+
+      # 海外全量自维持：GitHub 自带 schedule 实测长期不触发，这里让本 workflow
+      # 跑完用内置 GITHUB_TOKEN 给自己发下一次 workflow_dispatch（官方允许的例外），
+      # 形成每小时一条自愈链。用仓库内时间戳文件节流 55 分钟，避免叠加空转；
+      # 链万一断了，上面的多错峰 schedule 还能重启它。零外部 token、零用户操作。
+      - name: 每小时自接力（内置令牌 + 55 分钟节流）
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os, time, json, datetime, urllib.request, urllib.error
+          repo = os.environ.get("GITHUB_REPOSITORY", "whyx466/sound-vector")
+          token = os.environ.get("GH_TOKEN", "")
+          state = "collector/out/state/global_heartbeat.json"
+          now = time.time()
+          min_gap = 55 * 60
+          last = 0
+          try:
+              last = float(json.load(open(state)).get("ts", 0))
+          except Exception:
+              pass
+          if now - last < min_gap:
+              print("距上次接力不足 55 分钟（%d 分钟），本轮不再接力" % int((now-last)/60))
+              raise SystemExit(0)
+          # 记录本次接力时间（components 会在同轮提交）
+          os.makedirs(os.path.dirname(state), exist_ok=True)
+          json.dump({"ts": now, "at": datetime.datetime.utcnow().isoformat()+"Z"},
+                    open(state, "w"))
+          url = "https://api.github.com/repos/%s/actions/workflows/collect.yml/dispatches" % repo
+          body = json.dumps({"ref": "main"}).encode()
+          req = urllib.request.Request(url, data=body, method="POST", headers={
+              "Authorization": "Bearer " + token,
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "soundvector-heartbeat",
+              "Content-Type": "application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  print("自接力已发出 HTTP", r.status)
+          except urllib.error.HTTPError as e:
+              print("自接力失败 HTTP", e.code, e.read().decode()[:150])
+          except Exception as e:
+              print("自接力异常", str(e)[:150])
+          PY
+          # 把心跳时间戳提交回仓库，供下一轮读取节流（用内置 token 放行）
+          git config user.name "soundvector-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add collector/out/state/global_heartbeat.json 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "chore: 海外采集心跳 $(date -u +%H%MZ)" || true
+          git push || true
