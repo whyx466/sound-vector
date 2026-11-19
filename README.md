@@ -3,9 +3,57 @@
 每小时自动抓取全球音乐资讯与流媒体热歌榜，写入「声向」小程序的云数据库。
 放在 GitHub 上跑，**电脑关机也能更新**。
 
+仓库地址：https://github.com/whyx466/sound-vector
+
 ---
 
-## 你只需要做 4 步
+## ✅ 当前状态：已部署并跑通
+
+| 项目 | 状态 |
+|---|---|
+| 代码推送 | 已完成，`main` 分支已同步 |
+| 定时任务 | 已启用，每小时整点（`cron: 0 * * * *`）自动运行 |
+| Secret `WB_KEY` | 已配置 |
+| Workflow 写权限 | 已设为 Read and write（榜单基线能回写） |
+| 首次手动试跑 | 通过。写入 7 条、翻译 7 条，云库 608 → 615 条 |
+
+查看运行记录：https://github.com/whyx466/sound-vector/actions
+
+---
+
+## 以后改了代码，怎么上传
+
+三种方式，任选其一。
+
+### 方式一：让我传（最省事）
+
+跟我说「把采集器改动传到 GitHub」，我在本机执行
+`git add -A && git commit && git push` 即可。本机已记住 GitHub 凭据，不用你登录。
+
+### 方式二：本机命令行
+
+```bash
+cd "C:\Users\47407\WorkBuddy\2026-11-18-18-56-46\github-deploy"
+git add -A
+git commit -m "说明这次改了什么"
+git push
+```
+
+### 方式三：网页拖拽（不动命令行）
+
+打开 https://github.com/whyx466/sound-vector/upload/main
+把改过的文件拖进去，填一句说明，点 **Commit changes**。
+
+> 注意：拖拽只适合改**已有文件**。新增文件、删除文件、改 `.github/workflows/` 这类，
+> 用方式一或方式二更稳（网页拖拽不会删掉旧文件，容易留下两份）。
+
+### 传完之后要做什么
+
+不用做别的。下一个整点它会自己跑。想立刻验证就去 Actions 页点 **Run workflow** 手动触发一次。
+
+---
+
+## 首次部署步骤（已完成，留作以后换账号/重建时参考）
 
 ### 第 1 步：新建仓库
 
