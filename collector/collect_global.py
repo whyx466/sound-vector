@@ -859,10 +859,24 @@ NONMUSIC_BLOCK = re.compile(
     r"\bshakespeare\b|\bplaywright\b|话剧",
     re.I)
 
+# 正向音乐信号：版权/厂牌署名（Spotify 等专辑页底部常见格式）
+#   ©/℗ 2020 The Weeknd XO, Inc., marketed by Republic Records, a division of UMG Recordings, Inc.
+# 出现「©/℗ + 年份 + 厂牌/音乐词」基本可确定是音乐发行信息，保护其不被上面的非音乐词表误杀。
+MUSIC_RIGHTS = re.compile(
+    r"(?:[©℗]|\(p\)|\(c\))\s*(?:19|20)\d{2}[\s\S]{0,160}?"
+    r"(?:\b(?:records?|recordings?|music)\b|唱片|音乐)",
+    re.I)
+
 
 def obvious_nonmusic(title, desc):
-    """明确的非音乐主题，命中即拒（对白名单垂直源也生效）。"""
+    """明确的非音乐主题，命中即拒（对白名单垂直源也生效）。
+
+    例外：带版权/厂牌署名（©/℗ + 年份 + Records/Recordings/Music）的内容
+    视为音乐发行信息，先放行，避免被非音乐词表误杀。
+    """
     head = (title or "") + " " + (desc or "")[:160]
+    if MUSIC_RIGHTS.search(head):
+        return False
     return bool(NONMUSIC_BLOCK.search(head))
 
 # 域名画像：媒体所在语区基本固定，比正文关键词更准，优先采用
