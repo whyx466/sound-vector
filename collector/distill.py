@@ -92,6 +92,11 @@ BASE_NOISE_LINE_PATS = [re.compile(p) for p in (
     r"^<?\s*Enjoy the music\s*>?$",
     # 平台名单独成行（"XX视频号"/"XX公众号"）
     r"^[“\"']?[\u4e00-\u9fff]{2,10}[”\"']?\s*(?:视频号|抖音号?|快手号?|公众号|微博|官微|小红书)$",
+    # WordPress 文章末尾样板句："The post XXX appeared first on SITE."（含被截断的 "The post Th"）
+    # 实测 id815 `<em></em>` 乱码、id871 "帖子Th" 残片都来自这里，整行丢弃。
+    r"^The post\b",
+    r"appeared first on\b",
+    r"^帖子\s*T?h?e?\s*$",
 )]
 
 # 命中即从该行截断到结尾（跨推区/运营尾巴从这里开始）——内置基础规则
@@ -136,6 +141,10 @@ def scrub(text):
     out = []
     for ln in re.split(r"[\r\n]+", text):
         s = ln.strip()
+        # 先去掉 WordPress/RSS 残留的行内 HTML 标签（<em></em>、<a …>…</a> 等），
+        # 否则标签会混进译文变成 "的消<em></em>息" 这类乱码（实测 id815）。
+        if s:
+            s = re.sub(r"</?[A-Za-z][^>]*>", "", s).strip()
         if not s:
             continue
         if any(p.match(s) for p in TAIL_CUT_PATS):
