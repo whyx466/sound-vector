@@ -482,6 +482,17 @@ def write_rows(rows, dry_run=False):
         payload = {k: v for k, v in r.items() if not k.startswith("_")}
         payload["sort_order"] = base + i
         payload["tag"] = payload.get("tag") or ""
+        # 写库前最后一道门：严格对齐 RLS 策略 articles_insert_collector 的 7 条约束。
+        # 大脑 enrich_rows 在 filter_rows 之后改 category，若输出 RLS 不认的类目
+        # （旧版 "indie"），这里兜底纠正，避免整条撞 42501 写不进去（2026-11-21）。
+        payload["featured"] = False
+        payload["title"] = (payload.get("title") or "").strip()[:200]
+        payload["source_url"] = (payload.get("source_url") or "").strip()
+        payload["publish_date"] = clamp_date(payload.get("publish_date"))
+        if payload.get("category") not in VALID_CATEGORIES:
+            log("  [RLS兜底] 分类 %r 非法 → gossip | %s" %
+                (payload.get("category"), payload["title"][:40]))
+            payload["category"] = "gossip"
         status, resp = _req("POST", "/articles", payload)
         if status in (200, 201):
             ok += 1

@@ -41,7 +41,11 @@ MODEL_CHAIN = ["glm-5.3-flash", "minimax-m3.1-flash", "auto"]
 CALL_TIMEOUT = 50          # 单模型超时（秒），到点就降级
 BATCH_SIZE = 8             # 一次请求最多带几条，防止输出过长被截断
 
-VALID_CATS = ("west", "gossip", "greaterchina", "kpop", "jpop", "cpop", "indie",
+# 必须与 articles 表 RLS 策略 articles_insert_collector 的 category 白名单一致。
+# 注意：旧版含 "indie" 不在 RLS 白名单里，大脑判成 indie 的行写库直接撞
+# 42501 new row violates row-level security policy（2026-11-21 根治）。
+# 独立/另类归到 rock（RLS 认可），不要新增 RLS 没有的类目。
+VALID_CATS = ("west", "gossip", "greaterchina", "kpop", "jpop", "cpop", "rock",
               "classical", "musical", "folk", "guofeng", "heritage", "game",
               "report", "history", "industry", "globalpop")
 
