@@ -133,14 +133,22 @@ def _run():
     before_events = set(glob.glob(os.path.join(CHART_DIR, "events_*.json")))
     write_progress("start", "本轮开始", summary["steps"])
 
-    # 0. 每小时踢一次 GitHub 境外节点跑海外全量（Bing/GDELT/YT/GNews 境内抓不到）。
-    #    内部按文件节流，5 分钟一轮也只有满 55 分钟才真发一次；失败不影响本轮。
+    # 0. 分层踢 GitHub 境外节点（境内节点抓不到海外源，只能靠境外节点跑）：
+    #    - 快采 collect-fast.yml：每 5 分钟一次（RSS+Bing，无限流，十几秒~1分钟）
+    #    - 全量 collect.yml    ：每 55 分钟一次（GDELT/YT/GNews + 90 天大事回填）
+    #    两者各自独立节流（文件状态），5 分钟一轮里该发的才发；失败不影响本轮。
     try:
         sys.path.insert(0, COLLECTOR)
-        from gh_kick import kick as gh_kick
-        fired, gh_msg = gh_kick()
-        summary["gh_kick"] = {"fired": fired, "msg": gh_msg}
-        log("GitHub 海外触发检查：%s" % gh_msg)
+        from gh_kick import kick as gh_kick_full, kick_fast as gh_kick_fast
+        fast_fired, fast_msg = gh_kick_fast()
+        full_fired, full_msg = gh_kick_full()
+        summary["gh_kick"] = {
+            "fired": fast_fired or full_fired,
+            "fast": {"fired": fast_fired, "msg": fast_msg},
+            "full": {"fired": full_fired, "msg": full_msg},
+            "msg": "快采:%s | 全量:%s" % (fast_msg, full_msg),
+        }
+        log("GitHub 触发检查 —— 快采：%s；全量：%s" % (fast_msg, full_msg))
     except Exception as e:
         summary["gh_kick"] = {"fired": False, "msg": "检查异常 %s" % str(e)[:100]}
         log("GitHub 触发检查异常：%s" % str(e)[:100])

@@ -1168,7 +1168,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=60)
     ap.add_argument("--source", default="all",
-                    choices=["all", "bing", "gdelt", "rss", "youtube", "gnews"])
+                    choices=["all", "light", "bing", "gdelt", "rss", "youtube", "gnews"],
+                    help="light=5分钟快采专用：出版社RSS(41源)+Bing News RSS，两者无限流/无配额，跳过GDELT(限流429)/YouTube(日配额)/GNews(仅热度中转页)")
     ap.add_argument("--proxy", default=None)
     ap.add_argument("--days", type=int, default=3)
     ap.add_argument("--backfill-days", type=int, default=0,
@@ -1202,28 +1203,39 @@ def main():
         except Exception as e:
             log("未收录提问读取失败，跳过：%s" % str(e)[:100])
 
-    # 境内快速模式：四类海外源（Bing/GDELT/YouTube/GNews）实测 0 产出却耗 116s，
-    # 直接跳过，只跑稳定有效的出版社 RSS。海外源全量交给 GitHub 境外节点每小时补。
-    # 显式 --source 指定的源仍照跑（便于手动单独调试某个源）。
-    if args.source in ("all", "rss"):
-        log("-- 出版社 RSS（%s） --" % ("全量" if FAST_MODE else "全量"))
+    # light = 5 分钟快采专用：出版社 RSS（41 源，一手链接）+ Bing News RSS（12+/词，
+    # 多语种全球源）。两者都无限流、无日配额，境外节点十几秒到 1 分钟跑完；
+    # 刻意跳过 GDELT（1次/5秒限流常 429）/ YouTube（日配额 10000，5分钟跑必爆）/
+    # GNews（中转页仅热度）。全量四种源仍由每小时 collect.yml 补。
+    if args.source == "light":
+        log("-- 5分钟快采：出版社 RSS（41源） --")
         rows += source_rss(per)
-    if not FAST_SKIP_REMOTE or args.source != "all":
-        if args.source in ("all", "bing"):
-            log("-- Bing News RSS --")
-            rows += source_bing(per, queries=BING_QUERIES + gap_qs,
-                                gap_queries=[q[0] for q in gap_qs])
-        if args.source in ("all", "gdelt"):
-            log("-- GDELT --")
-            rows += source_gdelt(max(12, per // 3))
-        if args.source in ("all", "youtube"):
-            log("-- YouTube Data API v3 --")
-            rows += source_youtube(min(12, per // 4))
-        if args.source in ("all", "gnews"):
-            log("-- Google News（热度） --")
-            heat = source_gnews_heat()
-    elif FAST_SKIP_REMOTE and args.source == "all":
-        log("-- 境内快速模式：跳过 Bing/GDELT/YouTube/GNews（0 产出且耗时），由 GitHub 境外全量补 --")
+        log("-- 5分钟快采：Bing News RSS --")
+        rows += source_bing(per, queries=BING_QUERIES + gap_qs,
+                            gap_queries=[q[0] for q in gap_qs])
+    else:
+        # 境内快速模式：四类海外源（Bing/GDELT/YouTube/GNews）实测 0 产出却耗 116s，
+        # 直接跳过，只跑稳定有效的出版社 RSS。海外源全量交给 GitHub 境外节点每小时补。
+        # 显式 --source 指定的源仍照跑（便于手动单独调试某个源）。
+        if args.source in ("all", "rss"):
+            log("-- 出版社 RSS（%s） --" % ("全量" if FAST_MODE else "全量"))
+            rows += source_rss(per)
+        if not FAST_SKIP_REMOTE or args.source != "all":
+            if args.source in ("all", "bing"):
+                log("-- Bing News RSS --")
+                rows += source_bing(per, queries=BING_QUERIES + gap_qs,
+                                    gap_queries=[q[0] for q in gap_qs])
+            if args.source in ("all", "gdelt"):
+                log("-- GDELT --")
+                rows += source_gdelt(max(12, per // 3))
+            if args.source in ("all", "youtube"):
+                log("-- YouTube Data API v3 --")
+                rows += source_youtube(min(12, per // 4))
+            if args.source in ("all", "gnews"):
+                log("-- Google News（热度） --")
+                heat = source_gnews_heat()
+        elif FAST_SKIP_REMOTE and args.source == "all":
+            log("-- 境内快速模式：跳过 Bing/GDELT/YouTube/GNews（0 产出且耗时），由 GitHub 境外全量补 --")
 
     # 分类 / 地区 / 摘要补齐
     for r in rows:

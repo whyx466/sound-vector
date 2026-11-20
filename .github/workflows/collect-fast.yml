@@ -1,0 +1,68 @@
+name: 声向全球快采（5分钟）
+
+# 5 分钟全球快采：只跑无限流/无配额的两类全球源（出版社 RSS 41 源 + Bing News RSS），
+# 境外节点十几秒~1 分钟跑完。全量四种源（GDELT/YouTube/GNews + 90 天大事回填）
+# 仍由 collect.yml 每小时补，避免 GDELT 429 / YouTube 日配额爆掉。
+#
+# 与 collect.yml 的三个关键区别：
+#   1. 不写心跳文件、不 git push——否则每 5 分钟 push 会触发微信云托管 webhook
+#      反复重建容器，把云托管自己的 5 分钟采集循环打断。
+#   2. --source light，跳过限流源；--days 2 只收近两天新稿。
+#   3. concurrency 用独立 group，与全量互不排队；cloud_writer 自带 url+标题去重，
+#      和全量撞车也不会重复入库。
+
+on:
+  schedule:
+    # GitHub schedule 会延迟/丢帧，错开整点（:00 最容易被拖）。每 5 分钟一个点。
+    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: soundvector-collect-fast
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 全球快采（RSS 41源 + Bing News，无限流）
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python collector/collect_global.py --proxy direct --source light --limit 60 --days 2
+        continue-on-error: true
+
+      - name: 写入云数据库（去重 + 音乐相关性过滤）
+        env:
+          PYTHONIOENCODING: utf-8
+          WB_KEY: ${{ secrets.WB_KEY }}
+        run: python collector/cloud_writer.py --limit 30
+
+      - name: 汇总本次快采
+        if: always()
+        env:
+          PYTHONIOENCODING: utf-8
+          WB_KEY: ${{ secrets.WB_KEY }}
+        run: |
+          echo "### 5分钟全球快采" >> $GITHUB_STEP_SUMMARY
+          f=$(ls -1t collector/out/batch_*.json 2>/dev/null | head -1)
+          if [ -n "$f" ]; then python - "$f" >> $GITHUB_STEP_SUMMARY 2>/dev/null <<'EOF' || true
+          import glob, json, sys
+          b = sorted(glob.glob("collector/out/batch_*.json"))
+          if b:
+              d = json.load(open(b[-1], encoding="utf-8"))
+              print("- 本轮候选：%d 条" % len(d.get("articles") or []))
+          EOF
+          fi
