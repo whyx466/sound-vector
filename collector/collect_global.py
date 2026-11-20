@@ -674,8 +674,8 @@ def source_gdelt(limit=20):
         if len(out) >= limit:
             break
         url = ("https://api.gdeltproject.org/api/v2/doc/doc?query=%s"
-               "&mode=ArtList&maxrecords=25&format=json&timespan=1d"
-               % urllib.parse.quote(q))
+               "&mode=ArtList&maxrecords=25&format=json&timespan=%s"
+               % (urllib.parse.quote(q), GDELT_TIMESPAN))
         txt = fetch(url, timeout=18, retry=0)
         if not txt or txt.lstrip().startswith("Please limit"):
             log("  gdelt 限流，跳过剩余查询")
@@ -1122,11 +1122,46 @@ def dedupe(rows):
     return out
 
 
-def recent_only(rows, days=3):
-    # 与 cloud_writer 一致，按北京时间算窗口（GitHub Actions 是 UTC 机器）
-    cutoff = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600 - days * 86400))
-    keep = [r for r in rows if (r.get("publish_date") or "") >= cutoff]
-    return keep or rows
+# 增补窗口：GDELT 的 timespan 由 --backfill-days 决定（境内跳过 GDELT，只有 GitHub 海外全量用）
+GDELT_TIMESPAN = "1d"
+
+# "大事"判定：增补三个月内的旧闻时，只补够分量的，避免把陈年小动态翻出来
+_BIG_PAT = re.compile(
+    r"官宣|首演|首唱|破纪录|售罄|加场|定档|开唱|巡演|回归|重组|解散|复出|"
+    r"去世|逝世|获奖|夺冠|格莱美|金曲|新专辑|专辑发布|单曲首发|票房|破亿|"
+    r"世界纪录|里程碑|创纪录|重大|独家|首发|重磅|收购|并购|任命|融资|"
+    r"launch|release|announce|debut|break.*record|grammy|tour|new album|"
+    r"acquisition|merger|acquire|appoint|funding|billboard|hot 100", re.I)
+_BIG_CATS = ("report", "history", "industry")
+
+
+def big_enough(r):
+    """一条旧闻是否值得增补（大事/报告/产业）。"""
+    if (r.get("category") or "").strip().lower() in _BIG_CATS:
+        return True
+    return bool(_BIG_PAT.search((r.get("title") or "") + " " + (r.get("summary") or "")[:120]))
+
+
+def recent_only(rows, days=3, backfill_days=0):
+    """双轨时间窗：近 days 天新稿必收；backfill_days 内只补大事（旧的可补）。
+
+    未开启 backfill 时保持旧行为（窗口空则退回全部，避免整轮颗粒无收）。
+    开启后按「新稿在前、大事补 old 在后」返回，保证新稿不被旧闻挤出配额。
+    """
+    now = time.time() + 8 * 3600  # 北京时间（GitHub Actions 是 UTC 机器）
+    fresh_cutoff = time.strftime("%Y-%m-%d", time.gmtime(now - days * 86400))
+    if not backfill_days:
+        keep = [r for r in rows if (r.get("publish_date") or "")[:10] >= fresh_cutoff]
+        return keep or rows
+    back_cutoff = time.strftime("%Y-%m-%d", time.gmtime(now - backfill_days * 86400))
+    fresh, back = [], []
+    for r in rows:
+        d = (r.get("publish_date") or "")[:10]
+        if d >= fresh_cutoff:
+            fresh.append(r)
+        elif d >= back_cutoff and big_enough(r):
+            back.append(r)
+    return (fresh + back) or rows
 
 
 def main():
@@ -1136,9 +1171,18 @@ def main():
                     choices=["all", "bing", "gdelt", "rss", "youtube", "gnews"])
     ap.add_argument("--proxy", default=None)
     ap.add_argument("--days", type=int, default=3)
+    ap.add_argument("--backfill-days", type=int, default=0,
+                    help="增补窗口：这段时间内只补大事（报告/音乐史/产业/重大标题），新稿仍按 --days 全收；0=关闭")
     ap.add_argument("--gaps", type=int, default=6,
                     help="额外为「用户问过但站内没有」的提问跑几个定向检索（0=关闭）")
     args = ap.parse_args()
+
+    # 增补窗口开启时，GDELT/Google News 拉长到三个月，尽量把历史大新闻翻出来
+    global GDELT_TIMESPAN
+    if args.backfill_days >= 60:
+        GDELT_TIMESPAN = "3m"
+    elif args.backfill_days >= 25:
+        GDELT_TIMESPAN = "1m"
 
     os.makedirs(OUT_DIR, exist_ok=True)
     log("=== 声向 SOUND VECTOR 全球采集 开始 ===")
@@ -1202,14 +1246,25 @@ def main():
                      r"partnership|funding|raises \$|secures \$|capital|stake\b|"
                      r"收购|并购|任命|融资|入股|签约", r["title"], re.I):
             r["category"] = "industry"
+        # 学习线索纠偏：仅当上面没判出明确类别（兜底 west/gossip）时，
+        # 才用大模型从客户纠错里学到的 category_hints 修正，避免覆盖强规则。
+        if r["category"] in ("west", "gossip", ""):
+            try:
+                import distill as _dl
+                hinted = _dl.learned_category(r["title"], r["category"])
+                if hinted and hinted != r["category"]:
+                    r["category"] = hinted
+            except Exception:
+                pass
         r["region"] = guess_region(r["title"], r.get("summary", ""),
                                    r.get("source_url", ""))
         if not r.get("summary"):
             r["summary"] = r["title"][:120]
 
     rows = dedupe(rows)
-    fresh = recent_only(rows, args.days)
-    log("去重后 %d 条，近 %d 天 %d 条" % (len(rows), args.days, len(fresh)))
+    fresh = recent_only(rows, args.days, args.backfill_days)
+    log("去重后 %d 条，近 %d 天（含 %d 天大事增补）%d 条"
+        % (len(rows), args.days, args.backfill_days, len(fresh)))
 
     # 按分类分布排序，保证板块不偏科
     fresh.sort(key=lambda r: r["publish_date"], reverse=True)

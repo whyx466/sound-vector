@@ -40,7 +40,9 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-        run: python collector/collect_global.py --proxy direct --limit 120 --days 2
+        # 近 2 天新稿必收；近 90 天内只补大事（报告/音乐史/产业/重大标题），
+        # 让错过的历史大新闻逐步回填。cloud_writer 有 url+标题去重，不会重复入库。
+        run: python collector/collect_global.py --proxy direct --limit 140 --days 2 --backfill-days 90
         continue-on-error: true
 
       - name: 写入云数据库（去重 + 音乐相关性过滤）

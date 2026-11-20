@@ -133,6 +133,69 @@ def reload_patterns():
 reload_patterns()
 
 
+# ── 学习规则库（learning_rules.json）──
+# 由大模型从客户纠错中提炼，反哺写库前的术语纠正/分类线索。热加载，与 noise_patterns 同构。
+LEARNING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "learning_rules.json")
+_TERM_FIXES = []       # [(re.compile, replacement), ...]
+_CATEGORY_HINTS = []   # [(re.compile, category), ...]
+_SUMMARY_PLAYBOOK = [] # 文字范式，供 agent 总结/归类时遵循
+
+
+def reload_learning():
+    global _TERM_FIXES, _CATEGORY_HINTS, _SUMMARY_PLAYBOOK
+    data = {}
+    try:
+        with open(LEARNING_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    fixes, hints = [], []
+    for it in (data.get("term_fixes") or []):
+        w = (it.get("wrong") or "").strip()
+        if not w:
+            continue
+        try:
+            fixes.append((re.compile(re.escape(w), re.I), it.get("right") or ""))
+        except re.error:
+            pass
+    for it in (data.get("category_hints") or []):
+        pat = (it.get("pattern") or "").strip()
+        cat = (it.get("category") or "").strip()
+        if not pat or not cat:
+            continue
+        try:
+            hints.append((re.compile(pat, re.I), cat))
+        except re.error:
+            pass
+    _TERM_FIXES = fixes
+    _CATEGORY_HINTS = hints
+    _SUMMARY_PLAYBOOK = [s for s in (data.get("summary_playbook") or []) if s]
+    return len(fixes), len(hints)
+
+
+def apply_term_fixes(text):
+    """把客户纠错学到的术语纠正应用到中文文本（写库前调用）。"""
+    if not text:
+        return text
+    reload_learning()
+    for pat, rep in _TERM_FIXES:
+        text = pat.sub(rep, text)
+    return text
+
+
+def learned_category(title, default=""):
+    """用学到的分类线索修正分类；无命中返回 default。"""
+    reload_learning()
+    t = title or ""
+    for pat, cat in _CATEGORY_HINTS:
+        if pat.search(t):
+            return cat
+    return default
+
+
+reload_learning()
+
+
 def scrub(text):
     """清掉关注引流/无关便民信息/署名/跨推区，返回干净文本（保留新闻事实）。"""
     if not text:
@@ -152,7 +215,7 @@ def scrub(text):
         if any(p.search(s) for p in NOISE_LINE_PATS):
             continue
         out.append(s)
-    return "\n".join(out)
+    return apply_term_fixes("\n".join(out))
 
 
 # 场次描述
