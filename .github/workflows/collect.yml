@@ -49,7 +49,13 @@ jobs:
           WB_KEY: ${{ secrets.WB_KEY }}
         run: python collector/cloud_writer.py --limit 40
 
-      - name: 回写榜单基线（供下一小时对比）
+      - name: 心跳提交（每轮必 push，触发云托管自动同步最新代码）
+        # 微信云托管绑定 GitHub 后靠 push 事件的 webhook 自动重建。
+        # 榜单无变化时不 commit 会导致某些轮次没有 push → 云托管收不到触发，
+        # 叠加 webhook 偶发 502 抖动，代码改动就可能迟迟不上线。
+        # 这里每轮更新时间戳、保证必有一次 push；GITHUB_TOKEN 的 push 不会
+        # 触发新 workflow（GitHub 防递归），但会触发云托管 webhook——正合需要。
+        # schedule 已设 8/28/48 三个错峰点，每小时最多 3 次触发机会。
         run: |
           git config user.name "soundvector-bot"
           git config user.email "bot@users.noreply.github.com"
@@ -57,12 +63,12 @@ jobs:
           git add collector/out/charts/_last_snapshot.json
           # 用户提问的补采状态：不提交的话每轮都会重复搜同一批问题
           git add collector/out/state 2>/dev/null || true
-          if git diff --cached --quiet; then
-            echo "榜单无变化，无需提交"
-          else
-            git commit -m "chore: 更新榜单基线 $(date -u +%Y-%m-%dT%H:%MZ)"
-            git push
-          fi
+          # 心跳时间戳：每轮内容都不同，保证每轮必有一次 commit+push
+          mkdir -p collector/out/state
+          printf '{"at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > collector/out/state/heartbeat.json
+          git add -f collector/out/state/heartbeat.json
+          git commit -m "chore: 采集心跳 $(date -u +%Y-%m-%dT%H:%MZ)" || echo "无变化，跳过"
+          git push || echo "push 失败，等待下轮重试"
 
       - name: 汇总本次产出
         if: always()
