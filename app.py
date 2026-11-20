@@ -13,6 +13,7 @@ Flask 应用，内置定时调度线程（每 5 分钟一轮），不依赖容�
   GET  /        健康检查（云托管探活用）
   GET  /status  上一轮采集结果（out/last_cycle.json）+ 调度器/密钥诊断
   POST /collect 手动触发一轮（异步后台跑，立即返回；带令牌鉴权）
+  GET  /brain-check 大脑自检（容器内调一次真实大模型，验证链路；带令牌鉴权）
 
 鉴权：环境变量 COLLECT_TOKEN。
   - 请求头 X-Collect-Token: <token>  或  ?token=<token>
@@ -116,7 +117,7 @@ def status():
         pass
     return jsonify({
         # 版本标记：用于验证 push 是否触发云托管自动重建（线上出现此值=新代码已生效）
-        "build_tag": "v20261120-1510-llm-brain",
+        "build_tag": "v20261120-1520-brain-check",
         "busy": _state["busy"],
         "last_started": _state["last_started"],
         "last_finished": _state["last_finished"],
@@ -142,6 +143,39 @@ def collect():
     if not _trigger_cycle("manual"):
         return jsonify({"ok": False, "error": "上一轮还在跑，稍后再试"}), 409
     return jsonify({"ok": True, "msg": "采集已在后台启动，GET /status 查进度"})
+
+
+@app.route("/brain-check", methods=["GET"])
+def brain_check():
+    """大脑自检：让容器里的 llm_brain 对一条固定测试稿跑一次真实大模型调用。
+    不写库、不采集，仅验证「容器 → 大模型端点」链路是否可用。带令牌鉴权。"""
+    if not _authorized():
+        return jsonify({"ok": False, "error": "未授权（缺 COLLECT_TOKEN）"}), 401
+    result = {"ok": False, "endpoint_reachable": False, "model": "",
+              "reply": "", "error": ""}
+    try:
+        sys.path.insert(0, os.path.join(HERE, "collector"))
+        import llm_brain as brain
+        result["model"] = brain.MODEL_CHAIN[0]
+        messages = [
+            {"role": "system", "content": "你是音乐新闻编辑，只输出简短中文。"},
+            {"role": "user", "content": "用一句话说明格莱美奖是什么。"},
+        ]
+        last_err = ""
+        for model in brain.MODEL_CHAIN:
+            try:
+                text = brain._chat_stream(model, messages, timeout=25)
+                if text and text.strip():
+                    result.update(ok=True, endpoint_reachable=True,
+                                  model=model, reply=text.strip()[:300])
+                    return jsonify(result)
+                last_err = "%s 返回空" % model
+            except Exception as e:
+                last_err = "%s %s" % (model, str(e)[:120])
+        result["error"] = last_err or "所有模型都不可用"
+    except Exception as e:
+        result["error"] = "大脑模块加载失败：%s" % str(e)[:150]
+    return jsonify(result), 503
 
 
 # 启动进程内调度线程（gunicorn -w 1 单 worker，只会有一个调度器）
