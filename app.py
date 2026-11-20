@@ -117,7 +117,7 @@ def status():
         pass
     return jsonify({
         # 版本标记：用于验证 push 是否触发云托管自动重建（线上出现此值=新代码已生效）
-        "build_tag": "v20261120-1555-netcheck",
+        "build_tag": "v20261120-2340-livesearch",
         "busy": _state["busy"],
         "last_started": _state["last_started"],
         "last_finished": _state["last_finished"],
@@ -178,6 +178,34 @@ def brain_check():
     return jsonify(result), 503
 
 
+@app.route("/live-search", methods=["GET", "POST"])
+def live_search():
+    """提问当场联网搜索：抓境内可达的头条/Bing → 大模型汇总成中文答案。
+    小程序通过微信云托管内网调用（免 request 合法域名）。带令牌鉴权。
+    GET ?q=xxx&token=xxx 或 POST JSON {"q":"xxx","token":"xxx"}。"""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        q = (data.get("q") or "").strip()
+        tok = data.get("token") or request.args.get("token") or ""
+    else:
+        q = (request.args.get("q") or "").strip()
+        tok = request.args.get("token") or ""
+    if tok != os.environ.get("COLLECT_TOKEN", "sv-2026-collect"):
+        return jsonify({"ok": False, "error": "未授权（缺 token）"}), 401
+    if not q:
+        return jsonify({"ok": False, "error": "缺少问题参数 q"}), 400
+    try:
+        sys.path.insert(0, os.path.join(HERE, "collector"))
+        import live_search as ls
+        payload = ls.answer(q, log=app.logger.info)
+        return jsonify(payload)
+    except Exception as e:
+        app.logger.exception("[live-search] 失败")
+        return jsonify({"ok": False, "query": q, "answer": "",
+                        "error": "联网搜索异常：%s" % str(e)[:150],
+                        "sources": [], "searched": False}), 200
+
+
 @app.route("/net-check", methods=["GET"])
 def net_check():
     """网络自检：让容器实测海外检索源/公众号源的可达性与产出。
@@ -193,6 +221,9 @@ def net_check():
         ("GDELT", "https://api.gdeltproject.org/api/v2/doc/doc?query=music&mode=ArtList&maxrecords=5&format=json&timespan=1d"),
         ("Sogou WeChat", "https://weixin.sogou.com/weixin?type=2&query=%E9%9F%B3%E4%B9%90&page=1&ie=utf8"),
         ("Google Translate", "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=hello"),
+        # 境内可达的普通搜索源（提问当场联网搜索的后端）
+        ("Toutiao Search", "https://so.toutiao.com/search?keyword=BIGBANG%202026"),
+        ("Bing Web Search", "https://cn.bing.com/search?q=Taylor%20Swift%202026&ensearch=0"),
     ]
     out = {}
     for name, url in targets:
@@ -206,6 +237,10 @@ def net_check():
                     info["captcha"] = ("验证码" in body or "antispider" in body or "请输入验证码" in body)
                 elif "RSS" in name:
                     info["items"] = body.count("<item>")
+                elif name == "Toutiao Search":
+                    info["hits"] = body.count("<em>") + body.count("u003cem")
+                elif name == "Bing Web Search":
+                    info["items"] = body.count("b_algo")
                 out[name] = info
         except Exception as e:
             out[name] = {"reachable": False, "sec": round(_t.time() - t0, 1), "error": str(e)[:100]}
