@@ -117,7 +117,7 @@ def status():
         pass
     return jsonify({
         # 版本标记：用于验证 push 是否触发云托管自动重建（线上出现此值=新代码已生效）
-        "build_tag": "v20261121-0040-autopush",
+        "build_tag": "v20261121-0035-fast5min",
         "busy": _state["busy"],
         "last_started": _state["last_started"],
         "last_finished": _state["last_finished"],
