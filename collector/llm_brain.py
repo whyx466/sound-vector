@@ -47,7 +47,21 @@ BATCH_SIZE = 8             # 一次请求最多带几条，防止输出过长被
 # 独立/另类归到 rock（RLS 认可），不要新增 RLS 没有的类目。
 VALID_CATS = ("west", "gossip", "greaterchina", "kpop", "jpop", "cpop", "rock",
               "classical", "musical", "folk", "guofeng", "heritage", "game",
-              "report", "history", "industry", "globalpop")
+              "report", "history", "industry", "globalpop",
+              "blues", "funk", "electro", "hiphop", "vocal", "ost")
+
+# 2026-11-21 用户点名严重错误：NPR 爵士稿被判成 folk，小程序显示「中国民族音乐+欧美」。
+# 分类名对大模型是模糊的（folk 既有中国民族音乐也有欧美民谣），必须写清语义边界，
+# 并禁止按来源地硬套中国类目（jazz/blues 是美国本土音乐，但归类看流派不看地理位置）。
+CATEGORY_GUIDE = (
+    "分类语义（务必按音乐类型判断，不要按国家/地区硬套）："
+    "jazz/爵士/蓝调/blues/R&B/soul/funk → classical 或 blues/funk；"
+    "民谣/folk/folk-prog/民族民间音乐（含欧美、非洲）→ folk；"
+    "中国非遗/昆曲/古琴/古筝/民乐 → heritage 或 guofeng；"
+    "华语流行 → cpop；欧美流行 → west；日韩流行 → jpop/kpop；"
+    "电子 → electro；嘻哈 → hiphop；声乐 → vocal；影视原声 → ost。"
+    "严禁把欧美/非洲的民谣或爵士判成 guofeng/heritage 这类中国专属类目。"
+)
 
 SYSTEM_PROMPT = (
     "你是中文音乐媒体的资深编译编辑。根据提供的外文音乐资讯，逐条产出结构化中文信息。"
@@ -61,6 +75,7 @@ def _build_user_prompt(items):
              "  title_cn: 通顺的简体中文标题（≤40字，艺人名/组合名/专辑名保留原文写法不音译）",
              "  summary_cn: 一句话中文摘要（≤90字，讲清谁+做了什么+关键细节，不写客套开场白）",
              "  category: 从这些类里选最贴切的一个：%s" % "/".join(VALID_CATS),
+             "  " + CATEGORY_GUIDE,
              "  is_music: true 或 false（是否音乐相关；书榜/漫画/话剧/体育/时政等填 false）",
              "",
              "资讯清单："]

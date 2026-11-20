@@ -19,12 +19,16 @@ Flask 应用，内置定时调度线程（每 5 分钟一轮），不依赖容�
   - 请求头 X-Collect-Token: <token>  或  ?token=<token>
   - 未配置 COLLECT_TOKEN 时只允许容器内 127.0.0.1 调用（cron 走本机安全）。
 """
+import hashlib
 import json
 import os
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from flask import Flask, jsonify, request
 
@@ -117,7 +121,7 @@ def status():
         pass
     return jsonify({
         # 版本标记：用于验证 push 是否触发云托管自动重建（线上出现此值=新代码已生效）
-        "build_tag": "v20261121-0035-fast5min",
+        "build_tag": "v20261121-0210-auth-openid",
         "busy": _state["busy"],
         "last_started": _state["last_started"],
         "last_finished": _state["last_finished"],
@@ -204,6 +208,134 @@ def live_search():
         return jsonify({"ok": False, "query": q, "answer": "",
                         "error": "联网搜索异常：%s" % str(e)[:150],
                         "sources": [], "searched": False}), 200
+
+
+# ---------------------------------------------------------------------------
+# 声向自有账号：微信 openid 直通登录（2026-11-21）
+# ---------------------------------------------------------------------------
+# 小程序通过 wx.cloud.callContainer 调云托管时，微信网关在请求头注入
+# X-WX-OPENID / X-WX-UNIONID（微信保证、前端伪造不了）。用它做身份，
+# 无需 WorkBuddy Auth 授权、无需绑定小程序、无需 AppSecret。
+# 用户表用我们自己的 sv_users（不碰平台内置 users 表）。
+WB_REST = os.environ.get("WB_REST_URL", "https://mp-api.app.workbuddy.host/.cloud/database/rest").rstrip("/")
+
+
+def _wb_key():
+    k = os.environ.get("WB_KEY", "").strip()
+    if k:
+        return k
+    p = os.path.join(HERE, "collector", ".wb_key")
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def _wb_req(method, path, body=None, prefer=None):
+    key = _wb_key()
+    if not key:
+        return 0, {"error": "缺少 WB_KEY"}
+    data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
+    hd = {"x-wb-webapp-access-key": key, "Content-Type": "application/json",
+          "Accept": "application/json"}
+    if prefer:
+        hd["Prefer"] = prefer
+    req = urllib.request.Request(WB_REST + path, data=data, headers=hd, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            raw = r.read().decode("utf-8", "ignore")
+            return r.status, (json.loads(raw) if raw.strip() else [])
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "ignore")
+        return e.code, raw[:300]
+    except Exception as e:
+        return 0, str(e)[:200]
+
+
+def _wechat_identity():
+    """从微信网关注入的请求头取身份。openid 是权威身份，unionid 跨应用打通用。"""
+    headers = request.headers
+    openid = (headers.get("X-WX-OPENID") or headers.get("x-wx-openid") or "").strip()
+    unionid = (headers.get("X-WX-UNIONID") or headers.get("x-wx-unionid") or "").strip()
+    return openid, unionid
+
+
+@app.route("/auth/login", methods=["POST", "GET"])
+def auth_login():
+    """小程序 callContainer 调用：读网关注入的 openid，upsert sv_users，返回稳定身份。
+
+    返回 {ok, user:{openid, sid, nickname, avatar, loginCount, firstLogin, lastLogin}}。
+    sid = openid 的短哈希，只用于展示/本地缓存，真正身份以 openid 为准。
+    """
+    openid, unionid = _wechat_identity()
+    if not openid:
+        # 不是从微信小程序网关注入的调用——可能是公网直连或本地调试，拒绝并说明。
+        return jsonify({"ok": False,
+                        "error": "NO_WECHAT_IDENTITY",
+                        "hint": "请从体验版/正式版小程序内调用（wx.cloud.callContainer）"}), 200
+    data = request.get_json(silent=True) or {} if request.method == "POST" else {}
+    nickname = str(data.get("nickname") or "").strip()[:60]
+    avatar = str(data.get("avatar") or "").strip()[:500]
+    # 先读现有行，拿到累计登录次数与已存昵称头像。
+    st, rows = _wb_req("GET", "/sv_users?openid=eq.%s&limit=1" % urllib.parse.quote(openid))
+    old = (rows or [{}])[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else {}
+    count = int(old.get("login_count") or 0) + 1
+    payload = {
+        "openid": openid,
+        "unionid": unionid or old.get("unionid") or "",
+        "nickname": nickname or old.get("nickname") or "",
+        "avatar": avatar or old.get("avatar") or "",
+        "login_count": count,
+        "last_login": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
+    }
+    # PostgREST upsert：主键冲突则更新，配合 Prefer: resolution=merge-duplicates。
+    st2, res2 = _wb_req("POST", "/sv_users", payload,
+                        prefer="resolution=merge-duplicates,return=representation")
+    if st2 >= 400 or (isinstance(res2, dict) and res2.get("error")):
+        return jsonify({"ok": False, "error": "DB_UPSERT_FAILED",
+                        "detail": str(res2)[:200]}), 200
+    sid = hashlib.md5(openid.encode("utf-8")).hexdigest()[:12]
+    return jsonify({"ok": True, "user": {
+        "openid": openid, "sid": sid,
+        "nickname": payload["nickname"], "avatar": payload["avatar"],
+        "loginCount": count,
+        "firstLogin": old.get("first_login") or payload["last_login"],
+        "lastLogin": payload["last_login"],
+    }})
+
+
+@app.route("/auth/me", methods=["GET"])
+def auth_me():
+    """按 openid 查用户（仅读），供小程序刷新登录态。"""
+    openid, _ = _wechat_identity()
+    if not openid:
+        return jsonify({"ok": False, "error": "NO_WECHAT_IDENTITY"}), 200
+    st, rows = _wb_req("GET", "/sv_users?openid=eq.%s&limit=1" % urllib.parse.quote(openid))
+    if not isinstance(rows, list) or not rows:
+        return jsonify({"ok": False, "error": "NOT_FOUND"}), 200
+    u = rows[0]
+    return jsonify({"ok": True, "user": {
+        "openid": openid,
+        "sid": hashlib.md5(openid.encode("utf-8")).hexdigest()[:12],
+        "nickname": u.get("nickname") or "", "avatar": u.get("avatar") or "",
+        "loginCount": u.get("login_count") or 0,
+        "firstLogin": u.get("first_login") or "",
+        "lastLogin": u.get("last_login") or "",
+    }})
+
+
+@app.route("/auth/whoami", methods=["GET"])
+def auth_whoami():
+    """诊断：回显网关注入了哪些微信身份头（只回长度，不回明文），验证链路。"""
+    h = request.headers
+    return jsonify({
+        "ok": True,
+        "hasOpenid": bool((h.get("X-WX-OPENID") or "").strip()),
+        "hasUnionid": bool((h.get("X-WX-UNIONID") or "").strip()),
+        "wxHeaders": sorted([k for k in h.keys() if k.lower().startswith("x-wx-")]),
+        "fromService": h.get("X-WX-SERVICE") or "",
+    })
 
 
 @app.route("/net-check", methods=["GET"])
