@@ -503,6 +503,8 @@ def main():
     ap.add_argument("--proxy", default=os.environ.get("https_proxy") or os.environ.get("http_proxy"),
                     help="翻译走代理，如 7897；GitHub Actions 直连可留空")
     ap.add_argument("--no-translate", action="store_true", help="跳过翻译，直接写原文")
+    ap.add_argument("--no-llm", action="store_true",
+                    help="关闭云托管大模型增强（降级回机器翻译+关键词分类）")
     args = ap.parse_args()
 
     if not KEY:
@@ -537,9 +539,30 @@ def main():
         kept = [r for r in kept if r.get("region") in want]
         log("地区过滤 %s：%d → %d 条" % ("/".join(sorted(want)), before, len(kept)))
 
-    # 外文稿件先补中文标题/摘要再入库：读者打开就是中文，不必等前端逐条现翻。
-    # 翻不出来也不拦：留空即可，小程序端还有兜底翻译。
-    if not args.no_translate and kept:
+    # ── 云托管大脑：大模型全量增强（中文译名/摘要/分类/音乐相关性）──
+    # 用户 2026-11-20 要求"给云托管长个大脑"。实测 publishableKey 可匿名直连
+    # keyless LLM 端点，便宜模型 glm-5.3-flash 可用。大模型产出中文后无需再机器翻译。
+    # 任何失败自动降级回规则引擎（机器翻译+关键词分类），绝不中断写库。
+    llm_used = False
+    if not args.no_llm and kept and not args.dry_run:
+        try:
+            from llm_brain import enrich_rows
+            st = enrich_rows(kept, log=log)
+            llm_used = not bool(st.get("error"))
+            if st.get("nonmusic"):
+                before = len(kept)
+                kept = [r for r in kept if not r.get("_llm_nonmusic")]
+                log("  大脑剔除非音乐 %d 条（%d → %d）" % (st["nonmusic"], before, len(kept)))
+            # 清掉内部标记，避免写进库字段
+            for r in kept:
+                r.pop("_llm_nonmusic", None)
+                r.pop("_llm_done", None)
+        except Exception as e:
+            log("  大脑模块加载失败，降级规则引擎：%s" % str(e)[:80])
+
+    # 外文稿件补中文：大模型已产出就跳过；否则（--no-llm/大模型失败）走机器翻译兜底。
+    # 翻不出来也不拦，小程序端还有前端 LLM 兜底翻译。
+    if not llm_used and not args.no_translate and kept:
         try:
             from translate_zh import fill_rows
             fill_rows(kept, proxy=args.proxy)
