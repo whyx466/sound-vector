@@ -117,7 +117,7 @@ def status():
         pass
     return jsonify({
         # 版本标记：用于验证 push 是否触发云托管自动重建（线上出现此值=新代码已生效）
-        "build_tag": "v20261120-1520-brain-check",
+        "build_tag": "v20261120-1555-netcheck",
         "busy": _state["busy"],
         "last_started": _state["last_started"],
         "last_finished": _state["last_finished"],
@@ -176,6 +176,40 @@ def brain_check():
     except Exception as e:
         result["error"] = "大脑模块加载失败：%s" % str(e)[:150]
     return jsonify(result), 503
+
+
+@app.route("/net-check", methods=["GET"])
+def net_check():
+    """网络自检：让容器实测海外检索源/公众号源的可达性与产出。
+    只读探测（GET/小样本），不写库、不采集入库。带令牌鉴权。
+    用于判定 FAST_MODE 跳过的 Google News/Bing/GDELT 在容器内是否真的不可用。"""
+    if not _authorized():
+        return jsonify({"ok": False, "error": "未授权（缺 COLLECT_TOKEN）"}), 401
+    import urllib.request
+    import time as _t
+    targets = [
+        ("Google News RSS", "https://news.google.com/rss/search?q=music%20album&hl=en-US&gl=US&ceid=US:en"),
+        ("Bing News RSS", "https://www.bing.com/news/search?q=music&format=rss"),
+        ("GDELT", "https://api.gdeltproject.org/api/v2/doc/doc?query=music&mode=ArtList&maxrecords=5&format=json&timespan=1d"),
+        ("Sogou WeChat", "https://weixin.sogou.com/weixin?type=2&query=%E9%9F%B3%E4%B9%90&page=1&ie=utf8"),
+        ("Google Translate", "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=hello"),
+    ]
+    out = {}
+    for name, url in targets:
+        t0 = _t.time()
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                body = r.read(4000).decode("utf-8", "ignore")
+                info = {"status": r.status, "sec": round(_t.time() - t0, 1), "reachable": True}
+                if name == "Sogou WeChat":
+                    info["captcha"] = ("验证码" in body or "antispider" in body or "请输入验证码" in body)
+                elif "RSS" in name:
+                    info["items"] = body.count("<item>")
+                out[name] = info
+        except Exception as e:
+            out[name] = {"reachable": False, "sec": round(_t.time() - t0, 1), "error": str(e)[:100]}
+    return jsonify({"ok": True, "results": out})
 
 
 # 启动进程内调度线程（gunicorn -w 1 单 worker，只会有一个调度器）
