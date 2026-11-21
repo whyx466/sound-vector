@@ -200,7 +200,7 @@ def log(msg):
     print("[写库] " + msg, flush=True)
 
 
-def _req(method, path, body=None, extra_headers=None):
+def _req(method, path, body=None, extra_headers=None, retries=0):
     url = REST + path
     data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
     hd = {
@@ -211,16 +211,27 @@ def _req(method, path, body=None, extra_headers=None):
     }
     if extra_headers:
         hd.update(extra_headers)
-    req = urllib.request.Request(url, data=data, headers=hd, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            raw = r.read().decode("utf-8", "ignore")
-            return r.status, (json.loads(raw) if raw.strip() else [])
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8", "ignore")
-        return e.code, raw[:400]
-    except Exception as e:
-        return 0, str(e)[:200]
+    # GET 幂等，可安全重试：网关 5xx / 429 / 超时 / 网络抖动都先退避再试，
+    # 避免一次瞬时故障就把整轮写库打挂（2026-11-21 补，之前连挂多轮的主因）。
+    attempt = 0
+    while True:
+        attempt += 1
+        req = urllib.request.Request(url, data=data, headers=hd, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read().decode("utf-8", "ignore")
+                return r.status, (json.loads(raw) if raw.strip() else [])
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", "ignore")
+            if attempt <= retries and (e.code >= 500 or e.code == 429):
+                time.sleep(3 * attempt)
+                continue
+            return e.code, raw[:400]
+        except Exception as e:
+            if attempt <= retries:
+                time.sleep(3 * attempt)
+                continue
+            return 0, str(e)[:200]
 
 
 def norm_title(t):
@@ -245,15 +256,32 @@ def norm_url(u):
 
 
 def fetch_existing():
-    """拉云端现有 source_url 与 title（最多 8000 条，足够覆盖去重窗口）。"""
-    status, data = _req("GET", "/articles?select=source_url,title&order=id.desc&limit=8000")
-    if status != 200 or not isinstance(data, list):
-        log("警告：读取现有数据失败（HTTP %s），去重将不可靠，已中止" % status)
-        return None
+    """拉云端现有 source_url 与 title（最多 8000 条，足够覆盖去重窗口）。
+
+    分页拉取（每页 1000 条）+ 每页带重试：表越长单次大请求越容易超时，
+    一次失败就整轮中止是之前间歇性失败的主因。任一页重试后仍失败才中止，
+    保证去重数据完整——宁可这轮不写，也不带着残缺的去重表硬写出重复数据。
+    """
+    rows_all = []
+    page = 1000
+    offset = 0
+    while len(rows_all) < 8000:
+        status, data = _req(
+            "GET",
+            "/articles?select=source_url,title&order=id.desc&limit=%d&offset=%d"
+            % (page, offset),
+            retries=3)
+        if status != 200 or not isinstance(data, list):
+            log("警告：读取现有数据失败（HTTP %s），去重将不可靠，已中止" % status)
+            return None
+        rows_all.extend(data)
+        if len(data) < page:
+            break
+        offset += page
     urls = {norm_url(r.get("source_url"))
-            for r in data if r.get("source_url")}
-    titles = {norm_title(r.get("title")) for r in data if r.get("title")}
-    log("云端现有 %d 条，source_url %d 个" % (len(data), len(urls)))
+            for r in rows_all if r.get("source_url")}
+    titles = {norm_title(r.get("title")) for r in rows_all if r.get("title")}
+    log("云端现有 %d 条，source_url %d 个" % (len(rows_all), len(urls)))
     return urls, titles
 
 
@@ -466,7 +494,7 @@ def filter_rows(rows, existing, limit=0):
 def write_rows(rows, dry_run=False):
     if not rows:
         return 0, 0
-    status, data = _req("GET", "/articles?select=sort_order&order=sort_order.desc&limit=1")
+    status, data = _req("GET", "/articles?select=sort_order&order=sort_order.desc&limit=1", retries=2)
     base = 0
     if status == 200 and isinstance(data, list) and data:
         base = int(data[0].get("sort_order") or 0)
