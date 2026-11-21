@@ -285,6 +285,82 @@ def fetch_existing():
     return urls, titles
 
 
+# ── 本地去重索引（2026-11-21 补，省云数据库读取额度）──
+# 原来每轮写库前都全表回读去重，快采 5 分钟一轮，一天就是十几万行读取，
+# 额度主要烧在这里。改法：已入库的 url/标题清单存进仓库文件
+# collector/out/state/dedupe_index.json（全量工作流的心跳提交会带上它），
+# 每轮只回读云端最近 N 条补上索引之后的新增；索引过期（默认 20 小时）
+# 才全量回读一次重建。读不到近端数据时仍安全中止，绝不带着残缺清单硬写。
+INDEX_PATH = os.path.join(OUT_DIR, "state", "dedupe_index.json")
+
+
+def load_index():
+    """读本地去重索引，返回 (urls, titles, built_at)；无文件/损坏返回 None。"""
+    try:
+        with open(INDEX_PATH, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        urls = {u for u in d.get("urls") or [] if u}
+        titles = {t for t in d.get("titles") or [] if t}
+        built_at = float(d.get("built_at") or 0)
+        if not urls and not titles:
+            return None
+        return urls, titles, built_at
+    except Exception:
+        return None
+
+
+def save_index(urls, titles):
+    try:
+        os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
+        with open(INDEX_PATH, "w", encoding="utf-8") as f:
+            json.dump({"built_at": time.time(),
+                       "urls": sorted(urls), "titles": sorted(titles)},
+                      f, ensure_ascii=False)
+        log("去重索引已更新：%d 个链接 / %d 个标题" % (len(urls), len(titles)))
+    except Exception as e:
+        log("去重索引保存失败（不影响本轮写库）：%s" % str(e)[:80])
+
+
+def fetch_recent(limit):
+    """只拉云端最近 limit 条（按 id 倒序），覆盖索引建成之后的新增。"""
+    status, data = _req(
+        "GET",
+        "/articles?select=source_url,title&order=id.desc&limit=%d" % limit,
+        retries=3)
+    if status != 200 or not isinstance(data, list):
+        log("警告：读取近端数据失败（HTTP %s），去重将不可靠，已中止" % status)
+        return None
+    urls = {norm_url(r.get("source_url"))
+            for r in data if r.get("source_url")}
+    titles = {norm_title(r.get("title")) for r in data if r.get("title")}
+    return urls, titles
+
+
+def load_existing(recent_limit=300, max_age_hours=20.0, use_index=True,
+                  persist_index=True):
+    """组装去重清单：本地索引 + 云端近端回读；无索引或索引过期才全量回读。"""
+    idx = load_index() if use_index else None
+    if idx is not None:
+        urls, titles, built_at = idx
+        age_h = (time.time() - built_at) / 3600.0
+        if age_h <= max_age_hours:
+            recent = fetch_recent(recent_limit)
+            if recent is None:
+                return None
+            ru, rt = recent
+            urls |= ru
+            titles |= rt
+            log("去重：本地索引（%.1f 小时前）+ 云端近端 %d 条" % (age_h, len(ru)))
+            return urls, titles
+        log("去重索引已 %.1f 小时，全量回读重建" % age_h)
+    full = fetch_existing()
+    if full is None:
+        return None
+    if use_index and persist_index:
+        save_index(full[0], full[1])
+    return full
+
+
 def load_json(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -544,6 +620,12 @@ def main():
     ap.add_argument("--no-translate", action="store_true", help="跳过翻译，直接写原文")
     ap.add_argument("--no-llm", action="store_true",
                     help="关闭云托管大模型增强（降级回机器翻译+关键词分类）")
+    ap.add_argument("--recent-limit", type=int, default=300,
+                    help="用本地索引去重时，回读云端最近多少条补新增（默认 300）")
+    ap.add_argument("--index-max-age", type=float, default=20.0,
+                    help="本地去重索引超过多少小时就全量回读重建（默认 20）")
+    ap.add_argument("--no-index", action="store_true",
+                    help="不用本地去重索引，每轮全量回读（旧行为）")
     args = ap.parse_args()
 
     if not KEY:
@@ -561,7 +643,10 @@ def main():
         log("无候选，结束")
         return 0
 
-    existing = fetch_existing()
+    existing = load_existing(recent_limit=args.recent_limit,
+                             max_age_hours=args.index_max_age,
+                             use_index=not args.no_index,
+                             persist_index=not args.dry_run)
     if existing is None:
         return 2
     kept, stats = filter_rows(rows, existing, args.limit)
@@ -612,6 +697,11 @@ def main():
     log("=== 完成：成功 %d，失败 %d ===" % (ok, fail))
     if fail:
         return 1
+    # 全部写成功才把本轮新增并进本地索引（filter_rows 已把 kept 的
+    # url/标题加进 existing 集合）。有失败就不更新，宁可下轮多回读一点，
+    # 也不能把没写进去的稿子误记成「已入库」害它永远补不上。
+    if ok and not args.dry_run and not args.no_index:
+        save_index(existing[0], existing[1])
     return 0
 
 
