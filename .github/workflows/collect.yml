@@ -52,7 +52,7 @@ jobs:
           PYTHONIOENCODING: utf-8
           TCB_SECRET: ${{ secrets.TCB_SECRET }}
           TCB_ENV: cloud1-d2gbl3adwca0808e3
-        run: python collector/cloud_writer.py --tcb --no-llm --no-translate --limit 40
+        run: python collector/cloud_writer.py --tcb --no-llm --limit 40
 
       - name: 心跳提交（每轮必 push，触发云托管自动同步最新代码）
         # 微信云托管绑定 GitHub 后靠 push 事件的 webhook 自动重建。

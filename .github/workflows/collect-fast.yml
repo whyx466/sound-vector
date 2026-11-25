@@ -51,7 +51,7 @@ jobs:
           PYTHONIOENCODING: utf-8
           TCB_SECRET: ${{ secrets.TCB_SECRET }}
           TCB_ENV: cloud1-d2gbl3adwca0808e3
-        run: python collector/cloud_writer.py --tcb --no-llm --no-translate --limit 30
+        run: python collector/cloud_writer.py --tcb --no-llm --limit 30
 
       - name: 汇总本次快采
         if: always()

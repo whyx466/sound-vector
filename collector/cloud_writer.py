@@ -707,8 +707,14 @@ def main():
     # 翻不出来也不拦，小程序端还有前端 LLM 兜底翻译。
     if not llm_used and not args.no_translate and kept:
         try:
-            from translate_zh import fill_rows
-            fill_rows(kept, proxy=args.proxy)
+            from translator import translate_row
+            done = 0
+            for r in kept:
+                try:
+                    done += translate_row(r)
+                except Exception:
+                    pass
+            log("逐条翻译完成：补中文 %d 条（词典纠察已启用）" % done)
         except Exception as e:
             log("翻译步骤跳过（%s），入库后由前端兜底" % str(e)[:80])
 
