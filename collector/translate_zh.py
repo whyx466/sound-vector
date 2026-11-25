@@ -133,18 +133,12 @@ def _parse_any(raw):
     return ""
 
 
-# 端点按可用性从高到低试。
-# 境内节点（微信云托管）访问 Google 的 clients5/gtx 必超时（每条各耗 12s，
-# 30 条就撞满写库 timeout 被强杀）——这正是此前被迫 --no-translate 的根因。
-# 实测 mymemory 境内 1.6s 可达且译文可用，故境内模式把它提到首位并跳过 Google。
-# GitHub 境外节点不设 FAST_MODE，仍优先 Google（质量更好），mymemory 兜底。
-_FAST = os.environ.get("FAST_MODE", "").strip().lower() in ("1", "true", "yes", "on")
-_GOOGLE = [
+# 按可用性从高到低试。clients5 是最宽松的一个，gtx 常被限流，mymemory 质量差但兜底。
+_ENDPOINTS = [
     ("clients5", "https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl={tl}&q={q}"),
     ("gtx", "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={tl}&dt=t&q={q}"),
+    ("mymemory", "https://api.mymemory.translated.net/get?langpair=Autodetect|{tl}&q={q}"),
 ]
-_MYMEMORY = ("mymemory", "https://api.mymemory.translated.net/get?langpair=Autodetect|{tl}&q={q}")
-_ENDPOINTS = ([_MYMEMORY] + _GOOGLE) if _FAST else (_GOOGLE + [_MYMEMORY])
 
 
 def translate_once(text, opener, target="zh-CN"):
@@ -157,7 +151,7 @@ def translate_once(text, opener, target="zh-CN"):
                 "User-Agent": UA,
                 "Accept": "application/json,text/plain,*/*",
             })
-            with opener.open(req, timeout=6 if _FAST else 12) as r:
+            with opener.open(req, timeout=12) as r:
                 zh = _parse_any(r.read().decode("utf-8", "ignore"))
             # 结果必须真含汉字：某些后端会把报错当译文返回，直接用会把英文错误写进库。
             if zh and HAN_RE.search(zh):
@@ -209,32 +203,38 @@ def translate_batch(texts, proxy=None, pause=0.15):
 
 
 def fill_rows(rows, proxy=None):
-    """给 articles 行补 title_cn / summary_cn（原地改）。已有译文的行不再重复翻。"""
-    todo = [r for r in rows if not r.get("title_cn") and needs_zh(r.get("title"))]
-    if not todo:
-        return 0
-    titles = []
-    for r in todo:
-        if r.get("title"):
-            titles.append(r["title"])
-    tmap = translate_batch(titles, proxy=proxy)
+    """给 articles 行补 title_cn / summary_cn（原地改）。已有译文的行不再重复翻。
 
-    summaries = [r.get("summary") for r in todo if needs_zh(r.get("summary"))]
-    smap = translate_batch(summaries, proxy=proxy) if summaries else {}
+    2026-11-21 补两条：
+      - 中文原文也落进 *_cn（以前只处理外文，导致库内大量 title_cn 为空，前端全靠兜底）；
+      - 摘要不再只跟着「缺标题」的行走，单独缺口也能补。
+    """
+    t_todo = [r for r in rows
+              if not str(r.get("title_cn") or "").strip() and str(r.get("title") or "").strip()]
+    t_foreign = [str(r["title"]).strip() for r in t_todo if needs_zh(r.get("title"))]
+    tmap = translate_batch(t_foreign, proxy=proxy) if t_foreign else {}
 
-    filled = 0
-    for r in todo:
-        zh = tmap.get(r.get("title"))
+    s_todo = [r for r in rows
+              if not str(r.get("summary_cn") or "").strip() and str(r.get("summary") or "").strip()]
+    s_foreign = [str(r["summary"]).strip() for r in s_todo if needs_zh(r.get("summary"))]
+    smap = translate_batch(s_foreign, proxy=proxy) if s_foreign else {}
+
+    filled_title = filled_sum = 0
+    for r in t_todo:
+        t = str(r["title"]).strip()
+        zh = tmap.get(t) if needs_zh(t) else t   # 中文原文直接抄，不浪费请求
         if zh:
             r["title_cn"] = zh[:200]
-            filled += 1
-        s = r.get("summary") or ""
-        if s and needs_zh(s):
-            sz = smap.get(s)
-            if sz:
-                r["summary_cn"] = sz[:400]
-    log("共 %d 条外文稿件，%d 条补上中文标题" % (len(todo), filled))
-    return filled
+            filled_title += 1
+    for r in s_todo:
+        s = str(r["summary"]).strip()
+        zh = smap.get(s) if needs_zh(s) else s
+        if zh:
+            r["summary_cn"] = zh[:400]
+            filled_sum += 1
+    log("补中文：标题 %d 条（外文待翻 %d），摘要 %d 条（外文待翻 %d）"
+        % (filled_title, len(t_foreign), filled_sum, len(s_foreign)))
+    return filled_title
 
 
 def main():

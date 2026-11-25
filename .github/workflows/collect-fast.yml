@@ -47,8 +47,9 @@ jobs:
       - name: 写入云数据库（去重 + 音乐相关性过滤）
         env:
           PYTHONIOENCODING: utf-8
-          WB_KEY: ${{ secrets.WB_KEY }}
-        run: python collector/cloud_writer.py --limit 30
+          TCB_SECRET: ${{ secrets.TCB_SECRET }}
+          TCB_ENV: cloud1-d2gbl3adwca0808e3
+        run: python collector/cloud_writer.py --tcb --limit 30
 
       - name: 汇总本次快采
         if: always()

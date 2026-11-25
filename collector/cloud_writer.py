@@ -626,9 +626,20 @@ def main():
                     help="本地去重索引超过多少小时就全量回读重建（默认 20）")
     ap.add_argument("--no-index", action="store_true",
                     help="不用本地去重索引，每轮全量回读（旧行为）")
+    ap.add_argument("--tcb", action="store_true",
+                    help="写微信云开发（2026-11-25 起主力出口；需要 TCB_SECRET）")
     args = ap.parse_args()
 
-    if not KEY:
+    if args.tcb:
+        try:
+            import tcb_sink
+            if not tcb_sink._secret():
+                log("错误：--tcb 需要 AppSecret。设置 TCB_SECRET 或写 collector/.tcb_secret")
+                return 2
+        except Exception as e:
+            log("错误：云开发写入模块不可用（%s）" % str(e)[:120])
+            return 2
+    elif not KEY:
         log("错误：缺少写入密钥。请设置环境变量 WB_KEY，或写入 采集器/.wb_key")
         return 2
 
@@ -643,10 +654,18 @@ def main():
         log("无候选，结束")
         return 0
 
-    existing = load_existing(recent_limit=args.recent_limit,
-                             max_age_hours=args.index_max_age,
-                             use_index=not args.no_index,
-                             persist_index=not args.dry_run)
+    if args.tcb:
+        import tcb_sink
+        try:
+            existing = tcb_sink.existing(2000)
+        except Exception as e:
+            log("读云端去重集失败（%s），中止" % str(e)[:120])
+            return 2
+    else:
+        existing = load_existing(recent_limit=args.recent_limit,
+                                 max_age_hours=args.index_max_age,
+                                 use_index=not args.no_index,
+                                 persist_index=not args.dry_run)
     if existing is None:
         return 2
     kept, stats = filter_rows(rows, existing, args.limit)
@@ -693,7 +712,11 @@ def main():
         except Exception as e:
             log("翻译步骤跳过（%s），入库后由前端兜底" % str(e)[:80])
 
-    ok, fail = write_rows(kept, args.dry_run)
+    if args.tcb:
+        import tcb_sink
+        ok, fail = tcb_sink.write_rows(kept, args.dry_run)
+    else:
+        ok, fail = write_rows(kept, args.dry_run)
     log("=== 完成：成功 %d，失败 %d ===" % (ok, fail))
     if fail:
         return 1

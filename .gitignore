@@ -16,3 +16,9 @@ collector/out/report_*.md
 collector/out/charts/snapshot_*.json
 collector/out/charts/report_*.md
 collector/out/charts/events_*.json
+
+# 微信云开发 AppSecret（最高权限，绝不上传）
+.tcb_secret
+.tcb_token.json
+collector/.tcb_secret
+collector/.tcb_token.json
