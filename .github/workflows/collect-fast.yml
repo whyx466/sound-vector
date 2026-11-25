@@ -44,12 +44,14 @@ jobs:
         run: python collector/collect_global.py --proxy direct --source light --limit 60 --days 2
         continue-on-error: true
 
+      # --no-llm/--no-translate：云端大脑端点已隔离(401)，实测每批等满 150s 超时；
+      # 先保证原文快速入库，中文由本地管线/后台补，遵循 playbook「批量入库一律不翻译」。
       - name: 写入云数据库（去重 + 音乐相关性过滤）
         env:
           PYTHONIOENCODING: utf-8
           TCB_SECRET: ${{ secrets.TCB_SECRET }}
           TCB_ENV: cloud1-d2gbl3adwca0808e3
-        run: python collector/cloud_writer.py --tcb --limit 30
+        run: python collector/cloud_writer.py --tcb --no-llm --no-translate --limit 30
 
       - name: 汇总本次快采
         if: always()
