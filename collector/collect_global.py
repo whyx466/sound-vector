@@ -58,7 +58,7 @@ FAST_MODE = os.environ.get("FAST_MODE", "").strip() in ("1", "true", "yes", "on"
 FAST_TIMEOUT = 5          # 境内直连海外源 5s 无响应即弃
 FAST_RETRY = 0
 FAST_BING_QUERIES = 8     # 保留参数（GitHub 境外全量模式不受影响）
-FAST_RSS_FEEDS = 41       # 境内唯一稳定有效的源：41 个出版社 RSS 全跑（覆盖全球），不再裁剪
+FAST_RSS_FEEDS = 47       # 境内唯一稳定有效的源：47 个出版社 RSS 全跑（覆盖全球）；2026-11-27 新增 6 个实测有效源
 FAST_GNEWS_QUERIES = 4
 FAST_YT_QUERIES = 2
 # 根治：境内直连 Bing/GDELT/YouTube/GoogleNews 实测 0 产出却耗 116s，
@@ -711,6 +711,13 @@ def source_gdelt(limit=20):
 # ---------------------------------------------------------------- 源 3：出版社 RSS
 
 PUBLISHER_FEEDS = [
+    # --- 2026-11-27 新增：实测 200 且为真 RSS、有真实音乐条目（插前部保证 FAST_MODE 时间预算内跑到）---
+    ("MusicRadar", "https://www.musicradar.com/rss", None),            # 音乐器材/制作
+    ("MusicTech", "https://www.musictech.net/feed/", None),            # 音乐科技/制作
+    ("AllMusic", "https://www.allmusic.com/rss", None),                # 专辑评论/数据库
+    ("The Fader", "https://www.thefader.com/feed", None),              # 独立音乐文化
+    ("Dancing Astronaut", "https://dancingastronaut.com/feed", "electro"),  # 电子舞曲
+    ("We Rave You", "https://weraveyou.com/feed", "electro"),          # 电子舞曲
     ("Billboard", "https://www.billboard.com/feed/", None),
     # 产业媒体不预设 category，交给关键词判定，否则并购/人事新闻会被误塞进 report
     ("Music Business Worldwide", "https://www.musicbusinessworldwide.com/feed/", None),
