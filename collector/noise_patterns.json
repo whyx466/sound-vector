@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated_at": "2026-11-19T19:55:52",
+ "updated_at": "2026-11-25T19:52:00",
  "_说明": "可增长噪声规则库。noise_phrases=整行丢弃短语；tail_markers=从该行截断到结尾的标记。learn_candidates 是每分钟本地自检累计的候选短语（出现>=5次且含强噪声词自动晋升），每小时由 WorkBuddy 大模型对接时人工复核晋升或驳回。规则只增不减（除非误伤被驳回）。",
  "noise_phrases": [
   "扫码加入粉丝群",
@@ -24,7 +24,26 @@
   "后台回复关键词",
   "更多福利后台回复",
   "置顶公众号",
-  "添加星标不走失"
+  "添加星标不走失",
+  "河燥福利",
+  "更多信息点击放大",
+  "更多招募请关注",
+  "👇点击海报即可购票",
+  "点击购票",
+  "买一张就享活动价",
+  "优惠持续至",
+  "文末有惊喜",
+  "限定特调和周边",
+  "The post ",
+  "appeared first on",
+  "O post ",
+  "appeared first on Slippedisc.",
+  "appear first on",
+  "The following MBW op/ed comes from",
+  "La entrada ",
+  "appeared first on Mondo Sonoro",
+  "Get more stories like this in your inbox",
+  "READ MORE:"
  ],
  "tail_markers": [
   "加入粉丝群",
@@ -33,20 +52,77 @@
   "更多精彩推荐",
   "热文推荐",
   "推荐阅读",
-  "点击图片查看"
+  "点击图片查看",
+  "The post ",
+  "appeared first on",
+  "appeared first on Slippedisc.",
+  "O post ",
+  "Get more stories like this in your inbox"
  ],
- "learn_candidates": {
-  "河燥福利": 1,
-  "更多信息点击放大": 1,
-  "更多招募请关注": 1,
-  "👇点击海报即可购票": 1,
-  "点击购票": 1
- },
+ "learn_candidates": {},
  "learn_log": [
   {
    "at": "2026-11-19T19:50:00+08:00",
    "action": "seed",
    "note": "初始规则库：22 条整行丢弃短语 + 7 条截断标记（来自 2026-11-19 用户两次投诉清理时确认的噪声模式）"
+  },
+  {
+   "at": "2026-11-20T01:00:00+08:00",
+   "action": "promote",
+   "phrase": "河燥福利 / 更多信息点击放大 / 更多招募请关注 / 👇点击海报即可购票 / 点击购票",
+   "reason": "每小时对接层复核：均为营销前缀、关注引流或购票 CTA 话术，确认晋升为整行噪声短语"
+  },
+  {
+   "at": "2026-11-20T02:25:00+08:00",
+   "action": "promote",
+   "phrase": "买一张就享活动价 | 优惠持续至 | 文末有惊喜 | 限定特调和周边",
+   "reason": "本轮对接层复核自检队列发现的营销促销/引流噪声短语"
+  },
+  {
+   "at": "2026-11-20T03:42:00+08:00",
+   "action": "promote",
+   "phrase": "The post / appeared first on",
+   "reason": "本轮自检队列复核发现 RSS 摘要尾部重复标题与站点署名模板，属噪声"
+  },
+  {
+   "at": "2026-11-20T04:55:00+08:00",
+   "action": "promote",
+   "phrase": "O post  | appeared first on Slippedisc. | appear first on",
+   "reason": "本轮采集复核发现葡语/站点署名模板噪声（O post/appeared first on Slippedisc），补充整行丢弃与截断标记"
+  },
+  {
+   "at": "2026-11-20T08:21:34+08:00",
+   "action": "promote",
+   "phrase": "The following MBW op/ed comes from",
+   "reason": "本轮自检发现 MBW 评论稿固定署名引导行，属采编模板噪声"
+  },
+  {
+   "at": "2026-11-20T17:45:00+08:00",
+   "action": "review",
+   "note": "本轮复核：learn_candidates 为空，无晋升/驳回；noise_phrases 37 条、tail_markers 10 条保持不变"
+  },
+  {
+   "at": "2026-11-20T19:42:57+08:00",
+   "action": "review",
+   "note": "本轮复核：learn_candidates 为空，无晋升/驳回；noise_phrases 37 条保持不变"
+  },
+  {
+   "at": "2026-11-20T23:25:00+08:00",
+   "action": "promote",
+   "phrase": "O post ",
+   "reason": "本轮复核：葡语媒体 RSS 摘要尾部模板「O post ...」已在 noise_phrases，补进 tail_markers 以便从该行整段截断；learn_candidates 为空，无驳回"
+  },
+  {
+   "at": "2026-11-25T18:46:00+08:00",
+   "action": "promote",
+   "phrase": "La entrada  | appeared first on Mondo Sonoro",
+   "reason": "本轮复核：MondoSonoro 西语稿摘要普遍带「La entrada ... appeared first on ...」尾部样板，属 WordPress 模板噪声，晋升为整行丢弃短语"
+  },
+  {
+   "at": "2026-11-25T19:52:00+08:00",
+   "action": "promote",
+   "phrase": "Get more stories like this in your inbox | READ MORE:",
+   "reason": "本轮 WebFetch 核实 IQ Magazine/NME 原文发现邮件订阅引导行与跨推链接标记，属 E5 运营噪声，晋升为整行丢弃短语与截断标记"
   }
  ]
 }
