@@ -210,17 +210,22 @@ def write_rows(rows, dry_run=False, batch_size=100):
         p.setdefault("featured", False)
         p["title"] = (p.get("title") or "").strip()[:200]
         p["source_url"] = (p.get("source_url") or "").strip()
-        # created_at = 当天中午（非零时刻）：详情页「更新于 X月X日 HH:MM」读它。
-        # 不能用 publish_date+"T00:00:00"——那会让详情页显示 00:00。
-        # 本副本无 datetime 依赖，用 report_date 当天 12:00:00 兜底；
-        # 排序另走 publish_date→sort_order，与此无关。
-        _cd = str(p.get("created_at") or "")
+        # created_at = 真实入库时刻（详情页「更新于 X月X日 HH:MM」读它）。
+        # 别再拿 publish_date 推：报道日当天 12:00 在上午就是「未来时间」，
+        # 用户 10:31 看到「更新于 12:00」会直接判定数据出错（2026-11-28 反馈）。
+        # 规则：缺省/零点/纯日期 → 当前时刻；任何未来时间 → 拉回当前时刻。
+        _now = datetime.now()
+        _cd = str(p.get("created_at") or "").strip()
         if len(_cd) == 10 and _cd[4] == "-" and _cd[7] == "-":
             _cd += "T12:00:00"
         if not _cd or _cd.endswith("T00:00:00"):
-            _dp = str(p.get("publish_date") or "")
-            _cd = (_dp[:10] + "T12:00:00") if len(_dp) >= 10 else _cd
-        p["created_at"] = _cd or datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            _cd = _now.strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            if datetime.strptime(_cd[:19], "%Y-%m-%dT%H:%M:%S") > _now:
+                _cd = _now.strftime("%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            _cd = _now.strftime("%Y-%m-%dT%H:%M:%S")
+        p["created_at"] = _cd
         payloads.append(p)
 
     if dry_run:

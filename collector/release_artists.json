@@ -1,0 +1,437 @@
+{
+  "_note": "艺人新歌监测名单。id=网易云音乐 artist id（实测 artist/albums 接口带 publishTime）。新增艺人：在网易云搜索 artist 拿 id 后追加一行即可。category 走 cloud_writer 白名单；region 用于地区过滤。enabled=false 可临时停某艺人。",
+  "artists": [
+    {
+      "name": "周深",
+      "id": 1030001,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "Gareth.T 汤令山",
+      "id": 32944030,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "陈奕迅",
+      "id": 2116,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "林俊杰",
+      "id": 3684,
+      "category": "cpop",
+      "region": "新加坡"
+    },
+    {
+      "name": "周杰伦",
+      "id": 6452,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "邓紫棋",
+      "id": 7763,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "Taylor Swift",
+      "id": 44266,
+      "category": "west",
+      "region": "美国"
+    },
+    {
+      "name": "Billie Eilish",
+      "id": 11972054,
+      "category": "west",
+      "region": "美国"
+    },
+    {
+      "name": "Coldplay",
+      "id": 89365,
+      "category": "west",
+      "region": "英国"
+    },
+    {
+      "name": "BTS 防弹少年团",
+      "id": 783124,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "BLACKPINK",
+      "id": 12068017,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "NewJeans",
+      "id": 53457899,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "宇多田光",
+      "id": 18122,
+      "category": "jpop",
+      "region": "日本"
+    },
+    {
+      "name": "米津玄师",
+      "id": 159300,
+      "category": "jpop",
+      "region": "日本"
+    },
+    {
+      "name": "五月天",
+      "id": 13193,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "毛不易",
+      "id": 12138269,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "张惠妹",
+      "id": 10559,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "林家谦",
+      "id": 28605801,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "MC 张天赋",
+      "id": 37268030,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "告五人",
+      "id": 12676697,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "薛之谦",
+      "id": 5781,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "李荣浩",
+      "id": 4292,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "蔡依林",
+      "id": 7219,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "张杰",
+      "id": 6472,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "华晨宇",
+      "id": 861777,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "王一博",
+      "id": 12871618,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "易烊千玺",
+      "id": 939088,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "时代少年团",
+      "id": 33806754,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "虞书欣",
+      "id": 31468621,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "白鹿",
+      "id": 12603258,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "杨千嬅",
+      "id": 10204,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "容祖儿",
+      "id": 9269,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "古巨基",
+      "id": 2849,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "谢霆锋",
+      "id": 5773,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "郑秀文",
+      "id": 10571,
+      "category": "cpop",
+      "region": "中国香港"
+    },
+    {
+      "name": "蔡徐坤",
+      "id": 12932368,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "张艺兴",
+      "id": 1047015,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "鹿晗",
+      "id": 1038093,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "王源",
+      "id": 956386,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "王俊凯",
+      "id": 999220,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "S.H.E",
+      "id": 12709,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "蔡健雅",
+      "id": 7214,
+      "category": "cpop",
+      "region": "新加坡"
+    },
+    {
+      "name": "孙燕姿",
+      "id": 9272,
+      "category": "cpop",
+      "region": "新加坡"
+    },
+    {
+      "name": "梁静茹",
+      "id": 8325,
+      "category": "cpop",
+      "region": "马来西亚"
+    },
+    {
+      "name": "萧敬腾",
+      "id": 5768,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "韦礼安",
+      "id": 5379,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "周兴哲",
+      "id": 980025,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "张韶涵",
+      "id": 10562,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "田馥甄",
+      "id": 9548,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "黄丽玲",
+      "id": 7063,
+      "category": "cpop",
+      "region": "中国台湾"
+    },
+    {
+      "name": "Ariana Grande",
+      "id": 48161,
+      "category": "west",
+      "region": "美国"
+    },
+    {
+      "name": "Dua Lipa",
+      "id": 1135086,
+      "category": "west",
+      "region": "英国"
+    },
+    {
+      "name": "The Weeknd",
+      "id": 185858,
+      "category": "west",
+      "region": "加拿大"
+    },
+    {
+      "name": "Drake",
+      "id": 53283,
+      "category": "west",
+      "region": "加拿大"
+    },
+    {
+      "name": "Ed Sheeran",
+      "id": 33184,
+      "category": "west",
+      "region": "英国"
+    },
+    {
+      "name": "Adele",
+      "id": 46487,
+      "category": "west",
+      "region": "英国"
+    },
+    {
+      "name": "Lady Gaga",
+      "id": 64147,
+      "category": "west",
+      "region": "美国"
+    },
+    {
+      "name": "Justin Bieber",
+      "id": 35531,
+      "category": "west",
+      "region": "加拿大"
+    },
+    {
+      "name": "SZA",
+      "id": 905232,
+      "category": "west",
+      "region": "美国"
+    },
+    {
+      "name": "BLACKPINK Jennie",
+      "id": 12061232,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "IU",
+      "id": 160947,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "aespa",
+      "id": 37351063,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "IVE",
+      "id": 50377945,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "SEVENTEEN",
+      "id": 1080132,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "Stray Kids",
+      "id": 12647860,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "TXT",
+      "id": 31154262,
+      "category": "kpop",
+      "region": "韩国"
+    },
+    {
+      "name": "初音ミク",
+      "id": 159692,
+      "category": "jpop",
+      "region": "日本"
+    },
+    {
+      "name": "YOASOBI",
+      "id": 33927412,
+      "category": "jpop",
+      "region": "日本"
+    },
+    {
+      "name": "Official髭男dism",
+      "id": 1064050,
+      "category": "jpop",
+      "region": "日本"
+    },
+    {
+      "name": "赵本山",
+      "id": 6976,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "小沈阳",
+      "id": 5793,
+      "category": "cpop",
+      "region": "中国大陆"
+    },
+    {
+      "name": "赵大牛",
+      "id": 61056487,
+      "category": "cpop",
+      "region": "中国大陆"
+    }
+  ]
+}

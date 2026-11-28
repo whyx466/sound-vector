@@ -125,7 +125,15 @@ OFFICIAL_DOMAINS = {
     "damai.cn", "cityline.com", "kktix.com", "cotaiticketing.com",
     "umusic.com", "sonymusic.com", "wmg.com", "universal-music.com",
     "gov.cn", "copyright.gov", "europa.eu",
+    # 音乐平台官方发行页：专辑/单曲在该平台上线本身就是一手事实（2026-11-27 加）。
+    # 注意必须放在 WEAK_DOMAINS 通配的 163.com/qq.com 之前判，否则会被误标 suspect。
+    "music.163.com", "y.qq.com", "songsearch.kugou.com", "www.kugou.com",
 }
+
+# 平台一手发行页：这些路径是「艺人/专辑/单曲」本身，而非聚合首页。
+PLATFORM_RELEASE_PAT = re.compile(
+    r"^https?://(music\.163\.com/(album|artist|song)/|y\.qq\.com/|www\.kugou\.com/)",
+    re.I)
 
 # 弱来源：自媒体、聚合、UGC。不能作为唯一依据，进库也标 suspect 并显示"待核实"。
 WEAK_DOMAINS = {
@@ -184,6 +192,11 @@ def verify_fields(url, title):
     - 其他未知域名 → unverified，留给每小时自检联网核实
     """
     host = _domain(url)
+    # 平台一手发行页优先判：即使域名的父域（163.com/qq.com）在弱来源里，
+    # 专辑页本身是平台官方发布，算一手，不能标 suspect。
+    if PLATFORM_RELEASE_PAT.match(url or ""):
+        return {"verify_status": "verified", "cross_source_count": 1,
+                "verify_note": "音乐平台官方发行页（%s）" % host}
     if _in(host, OFFICIAL_DOMAINS):
         return {"verify_status": "verified", "cross_source_count": 1,
                 "verify_note": "机构/平台官网发布（%s），脚本判定一手" % host}

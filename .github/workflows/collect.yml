@@ -36,13 +36,29 @@ jobs:
         run: python collector/collect_charts.py --proxy direct
         continue-on-error: true
 
+      # 艺人新歌上架（网易云 artist/albums，带精确发布日期）：补媒体 RSS 的盲区，
+      # 命中「某艺人某天发新歌」这类平台一手事件（周深/汤令山实测可抓）。
+      - name: 艺人新歌上架监测（网易云平台一手发行页）
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python collector/collect_releases.py --proxy direct --days 14
+        continue-on-error: true
+
+      # 酷狗主源（2026-11-28 用户要求「酷狗不只补充、要当主源、大量抓」）：
+      # 多榜单热歌 + 72 艺人定点搜 + PublishDate 补日期；水歌严格过滤。
+      - name: 酷狗主源采集（多榜单 + 艺人定点搜）
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python collector/collect_kugou.py --proxy direct --days 30
+        continue-on-error: true
+
       - name: 全球资讯采集（RSS + Bing + YouTube + GDELT）
         env:
           PYTHONIOENCODING: utf-8
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         # 近 2 天新稿必收；近 90 天内只补大事（报告/音乐史/产业/重大标题），
         # 让错过的历史大新闻逐步回填。cloud_writer 有 url+标题去重，不会重复入库。
-        run: python collector/collect_global.py --proxy direct --limit 140 --days 2 --backfill-days 90
+        run: python collector/collect_global.py --proxy direct --limit 220 --days 2 --backfill-days 90
         continue-on-error: true
 
       # --no-llm/--no-translate：云端大脑端点已隔离(401)，实测每批等满 150s 超时；
@@ -52,7 +68,7 @@ jobs:
           PYTHONIOENCODING: utf-8
           TCB_SECRET: ${{ secrets.TCB_SECRET }}
           TCB_ENV: cloud1-d2gbl3adwca0808e3
-        run: python collector/cloud_writer.py --tcb --no-llm --limit 40
+        run: python collector/cloud_writer.py --tcb --no-llm --limit 120
 
       - name: 心跳提交（每轮必 push，触发云托管自动同步最新代码）
         # 微信云托管绑定 GitHub 后靠 push 事件的 webhook 自动重建。
