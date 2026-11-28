@@ -16,6 +16,7 @@ from datetime import datetime
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -48,14 +49,34 @@ def _secret():
     return ""
 
 
-def _http(url, payload=None, timeout=30):
+def _http(url, payload=None, timeout=30, retries=3):
+    """HTTP 调用，带瞬时故障重试。
+
+    CI runner 到微信 API 偶发超时/连接重置（实测约每十几轮挂 1 次），
+    旧实现一抖就整步失败、连带跳过心跳提交。这里退避重试 3 次。
+    """
     data = None
     headers = {"Content-Type": "application/json"}
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST" if data else "GET")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+
+    last = None
+    for i in range(max(1, retries)):
+        try:
+            req = urllib.request.Request(url, data=data, headers=headers,
+                                         method="POST" if data else "GET")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            # 4xx 是请求本身有问题，重试无意义；5xx 与 429 值得重试
+            if 400 <= e.code < 500 and e.code != 429:
+                raise
+            last = e
+        except Exception as e:
+            last = e
+        if i < retries - 1:
+            time.sleep(1.5 * (i + 1))
+    raise last
 
 
 def token(force=False):
@@ -90,12 +111,26 @@ def token(force=False):
 
 
 def _call(path, payload):
+    """调用云开发 HTTP API。
+
+    errcode 里 -1/50001/45009/45011 是系统繁忙或频率限制，属于瞬时错误，
+    退避重试；40001/42001 是 token 失效，换 token 重试一次。
+    """
     url = "https://api.weixin.qq.com/tcb/%s?access_token=%s" % (path, urllib.parse.quote(token()))
     r = _http(url, payload)
     # 40001 = access_token 失效，换一次再试
     if r.get("errcode") in (40001, 42001):
         url = "https://api.weixin.qq.com/tcb/%s?access_token=%s" % (path, urllib.parse.quote(token(True)))
         r = _http(url, payload)
+    # 瞬时错误：最多再重试 2 次
+    for i in range(2):
+        if r.get("errcode") not in (-1, 50001, 45009, 45011):
+            break
+        time.sleep(2.0 * (i + 1))
+        r = _http(url, payload)
+        if r.get("errcode") in (40001, 42001):
+            url = "https://api.weixin.qq.com/tcb/%s?access_token=%s" % (path, urllib.parse.quote(token(True)))
+            r = _http(url, payload)
     return r
 
 

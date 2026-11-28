@@ -71,6 +71,10 @@ jobs:
         run: python collector/cloud_writer.py --tcb --no-llm --limit 120
 
       - name: 心跳提交（每轮必 push，触发云托管自动同步最新代码）
+        # 必须 always()：写库步骤偶发超时/限流会失败，若心跳跟着被跳过，
+        # 远端就长时间没有新提交（实测曾停 1 小时），云托管也收不到重建触发。
+        # 失败仍会被 step 结论标红，不影响故障可见性。
+        if: always()
         # 微信云托管绑定 GitHub 后靠 push 事件的 webhook 自动重建。
         # 榜单无变化时不 commit 会导致某些轮次没有 push → 云托管收不到触发，
         # 叠加 webhook 偶发 502 抖动，代码改动就可能迟迟不上线。
